@@ -1,0 +1,14 @@
+TODO items for gopenvpn
+-----------------------
+
+- Support for other desktop environments (Xfce, kde)
+
+- Localization
+
+- Ability to set nameserver automatically
+
+- Ability to add/edit/delete/rename .conf files
+
+- "Reload" command
+
+- Higher quality icons and animation for when connecting

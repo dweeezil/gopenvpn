@@ -1,0 +1,133 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2006-12-07 06:15-0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../src/gopenvpn.c:123
+#, c-format
+msgid "Passphrase for OpenVPN connection %s"
+msgstr "Phrase secrète pour la connexion OpenVPN '%s'"
+
+#: ../src/gopenvpn.c:290 ../src/gopenvpn.c:539
+#, c-format
+msgid "Connect %s"
+msgstr "Connecter %s"
+
+#: ../src/gopenvpn.c:306
+msgid "Error creating socket to talk to OpenVPN management interface"
+msgstr "Erreur de récupération de la connexion VPN '%s'"
+
+#: ../src/gopenvpn.c:317
+msgid "Error connecting to OpenVPN management interface"
+msgstr "Erreur de récupération de la connexion VPN '%s'"
+
+#: ../src/gopenvpn.c:385
+msgid "Could not find an open TCP port for OpenVPN's management interface"
+msgstr "Erreur de récupération de la connexion VPN '%s'"
+
+#: ../src/gopenvpn.c:438
+msgid "Error launching OpenVPN subprocess"
+msgstr "Erreur de récupération de la connexion VPN '%s'"
+
+#. Change the menu item
+#: ../src/gopenvpn.c:450
+#, c-format
+msgid "Disconnect %s"
+msgstr "Déconnecter %s"
+
+#: ../src/gopenvpn.c:885
+#, c-format
+msgid "OpenVPN: %d connections active"
+msgstr "OpenVPN: %d connexions actives"
+
+#: ../src/gopenvpn.c:1128
+msgid "OpenVPN: 0 connections active"
+msgstr "OpenVPN: 0 connexions actives"
+
+#: ../src/gopenvpn.c:1144
+msgid "Details..."
+msgstr "Détails..."
+
+#: ../src/gopenvpn.c:1149
+msgid "Quit"
+msgstr "Quitter"
+
+#: ../src/gopenvpn.c:1181
+#, c-format
+msgid "No OpenVPN configuration files were found in %s"
+msgstr "Il n'y a pas de fichiers de configuration dans '%s'"
+
+#: ../src/gopenvpn.c:1186
+#, c-format
+msgid "Could not find openvpn binary at %s.  Make sure OpenVPN is installed."
+msgstr "L'applet gopenvpn n'a pas pu trouver certaines ressources requises: %s"
+
+#: ../src/gopenvpn.c:1272
+#, c-format
+msgid "gopenvpn could not find some required resources: file %s was not found."
+msgstr "L'applet gopenvpn n'a pas pu trouver certaines ressources requises: %s"
+
+#: ../src/gopenvpn.glade.h:1
+msgid "Automatically Connect"
+msgstr "Connecter automatiquement"
+
+#: ../src/gopenvpn.glade.h:2
+msgid "Clear Log"
+msgstr "Effaçer le log"
+
+#: ../src/gopenvpn.glade.h:3
+msgid "Connect"
+msgstr "Connecter"
+
+#: ../src/gopenvpn.glade.h:4
+msgid "Disconnect"
+msgstr "Déconnecter"
+
+#: ../src/gopenvpn.glade.h:5
+msgid "Edit Configuration"
+msgstr "Modifier la configuration"
+
+#: ../src/gopenvpn.glade.h:6
+msgid "Enter your authentication credentials for this VPN connection."
+msgstr "Une phrase de passe est requise pour accéder à cette connexion VPN."
+
+#: ../src/gopenvpn.glade.h:7
+msgid "Enter your passphrase to unlock the VPN connection's private key."
+msgstr "Une phrase de passe est requise pour accéder à cette connexion VPN."
+
+#: ../src/gopenvpn.glade.h:8
+msgid "Passphrase:"
+msgstr "Phrase de passe:"
+
+#: ../src/gopenvpn.glade.h:9
+msgid "Remember Password"
+msgstr "Souvenir la phrase de passe"
+
+#: ../src/gopenvpn.glade.h:10
+msgid "Show Password"
+msgstr "Montrer la phrase de passe"
+
+#: ../src/gopenvpn.glade.h:11
+msgid "Username:"
+msgstr "Nom d'utilisateur:"
+
+#: ../src/gopenvpn.glade.h:12
+msgid "VPN Configuration:"
+msgstr "Nom de connexion VPN:"
+
+#: ../src/gopenvpn.glade.h:13
+msgid "gopenvpn"
+msgstr "gopenvpn"
