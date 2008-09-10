@@ -435,7 +435,7 @@ void vpn_config_start(VPNConfig *self)
 	command = g_strdup_printf("%s --management-query-passwords --cd %s "
 							  "--daemon --management-hold "
 							  "--management 127.0.0.1 %d --config %s",
-							  OPENVPN_PATH,
+							  OPENVPN_BINARY_PATH,
 							  CONFIG_PATH,
 							  port,
 							  self->file);
