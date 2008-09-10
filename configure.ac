@@ -56,18 +56,26 @@ AC_SUBST(OPENVPN_BINARY_PATH)
 
 # gksu binary path
 AC_ARG_WITH(gksu, AC_HELP_STRING([--with-gksu=/path/to/gksu], [path to gksu])) 
+USE_GKSU=0
 if test "x${with_gksu}" = x; then
   AC_PATH_PROG(GKSU_BINARY_PATH, gksu, [], $PATH:/usr/bin)
   if ! test -x "$GKSU_BINARY_PATH"; then
 	AC_MSG_ERROR(gksu was not installed)
   fi
+  USE_GKSU=1
 else
-  GKSU_BINARY_PATH="$with_gksu"
+  if test "x${with_gksu}" = xno; then
+    USE_GKSU = 0
+  else
+    GKSU_BINARY_PATH="$with_gksu"
+    USE_GKSU=1
+  fi
 fi
 AC_DEFINE_UNQUOTED(GKSU_BINARY_PATH, "$GKSU_BINARY_PATH", [Define to path of gksu binary])
 AC_SUBST(GKSU_BINARY_PATH)
+AC_DEFINE_UNQUOTED(USE_GKSU, $USE_GKSU, [Indicates whether gksu is used])
+AC_SUBST(USE_GSKU)
 
-# gopenvpnstart binary path
 AC_DEFINE_UNQUOTED(GOPENVPNSTART_BINARY_PATH, "$myprefix/bin/gopenvpnstart", [Path of gopenvpnstart binary])
 AC_SUBST(GOPENVPNSTART_BINARY_PATH)
 

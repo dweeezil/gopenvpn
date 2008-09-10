@@ -1192,11 +1192,17 @@ void vpn_applet_edit_config_cb(GtkButton *button, gpointer user_data)
 
 		if (!editor)
 			editor = g_strdup(GEDIT_BINARY_PATH);
-		
+
+		#ifdef USE_GKSU
 		argv[0] = GKSU_BINARY_PATH;
 		argv[1] = editor;
 		argv[2] = config->file;
 		argv[3] = NULL;
+		#else
+		argv[0] = editor;
+		argv[1] = config->file;
+		argv[2] = NULL;
+		#endif
 		
 		g_spawn_async(NULL, argv, NULL, 0,
 					  NULL, NULL, NULL, NULL);
