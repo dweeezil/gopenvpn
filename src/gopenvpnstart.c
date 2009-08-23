@@ -109,6 +109,8 @@ int main(int argc, char *argv[])
 		  "--cd",
 		  CONFIG_PATH,
 		  "--daemon",
+		  "--script-security",
+		  "2",
 		  "--management-hold",
 		  "--management",
 		  "127.0.0.1",

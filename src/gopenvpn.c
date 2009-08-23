@@ -434,7 +434,7 @@ void vpn_config_start(VPNConfig *self)
 	#ifdef USE_GKSU
 	command = g_strdup_printf("%s --management-query-passwords --cd %s "
 							  "--daemon --management-hold "
-							  "--management 127.0.0.1 %d --config %s",
+							  "--script-security 2 --management 127.0.0.1 %d --config %s",
 							  OPENVPN_BINARY_PATH,
 							  CONFIG_PATH,
 							  port,
