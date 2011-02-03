@@ -3,4 +3,5 @@
 aclocal \
 && autoheader \
 && automake --gnu --add-missing \
-&& autoconf
+&& autoconf \
+&& intltoolize
