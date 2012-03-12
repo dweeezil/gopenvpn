@@ -1,33 +1,27 @@
-NULL=
-
 ubindir = ${prefix}/bin
 
 bin_PROGRAMS = gopenvpn gopenvpnstart
 
-gopenvpn_LDADD = $(GTK_LIBS)				\
-	$(GLADE_LIBS)							\
-	$(GNOME_KEYRING_LIBS)					\
-	$(X11_LIBS)					\
-	$(NULL)
+gopenvpn_LDADD = $(GTK_LIBS)	\
+	$(GLADE_LIBS)		\
+	$(GNOME_KEYRING_LIBS)	\
+	$(X11_LIBS)
 
-AM_CFLAGS = -Wall -ansi -pedantic	\
-	$(GLADE_CFLAGS)							\
-	$(GNOME_KEYRING_CFLAGS)					\
-	$(GTK_CFLAGS)							\
-	$(X11_CFLAGS)							\
+AM_CFLAGS = -Wall -ansi -pedantic		\
+	$(GLADE_CFLAGS)				\
+	$(GNOME_KEYRING_CFLAGS)			\
+	$(GTK_CFLAGS)				\
+	$(X11_CFLAGS)				\
 	-DPIXMAPS_DIR=\""$(datadir)/gopenvpn"\" \
-	-DSYSCONF_DIR=\""$(sysconfdir)"\"		\
+	-DSYSCONF_DIR=\""$(sysconfdir)"\"	\
 	-DLOCALSTATE_DIR=\""$(localstatedir)"\"	\
 	-DGNOMELOCALEDIR=\"$(datadir)/locale\"	\
-	-DGLADE_DIR=\""$(datadir)/gopenvpn"\"	\
-	$(NULL)
+	-DGLADE_DIR=\""$(datadir)/gopenvpn"\"
 
-gopenvpn_SOURCES = gopenvpn.c				\
-	eggtrayicon.c							\
-	$(NULL)
+gopenvpn_SOURCES = gopenvpn.c			\
+	eggtrayicon.c
 
-gopenvpnstart_SOURCES = gopenvpnstart.c		\
-	$(NULL)
+gopenvpnstart_SOURCES = gopenvpnstart.c
 
 gladedir = $(datadir)/gopenvpn
 glade_DATA = gopenvpn.glade
