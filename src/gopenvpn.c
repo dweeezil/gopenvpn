@@ -390,12 +390,10 @@ void vpn_config_clear_log(VPNConfig *self)
 void vpn_config_start(VPNConfig *self)
 {
 	VPNApplet *applet = self->applet;
-	
+	char *ovpn_args[] = {PKEXEC_BINARY_PATH, OPENVPN_BINARY_PATH, NULL, NULL, NULL, NULL, NULL, NULL,
+			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 	int s;
 	pid_t pid;
-	#ifdef USE_GKSU
-	char *command;
-	#endif
 	socklen_t namelen;
 	int status, port;
 
@@ -431,47 +429,33 @@ void vpn_config_start(VPNConfig *self)
 	port = ntohs(self->sockaddr.sin_port);
 	close(s);
 
-	#ifdef USE_GKSU
-	command = g_strdup_printf("%s --management-query-passwords --cd %s "
-							  "--daemon --management-hold "
-							  "--script-security 2 --management 127.0.0.1 %d --config %s",
-							  OPENVPN_BINARY_PATH,
-							  CONFIG_PATH,
-							  port,
-							  self->file);
-	#endif
-	
+	ovpn_args[2]  = "--cd";
+	ovpn_args[3]  = g_strdup_printf("%s", CONFIG_PATH);
+	ovpn_args[4]  = "--daemon";
+	ovpn_args[5]  = "--script-security";
+	ovpn_args[6]  = "2";
+	ovpn_args[7]  = "--management-query-passwords";
+	ovpn_args[8]  = "--management-hold";
+	ovpn_args[9]  = "--management";
+	ovpn_args[10] = "127.0.0.1";
+	ovpn_args[11] = g_strdup_printf("%d", port);
+	ovpn_args[12] = "--config";
+	ovpn_args[13] = g_strdup_printf("%s", self->file);
+
 	/* Start the openvpn subprocess */
 	pid = fork();
 	if (!pid)
 	{
 		/* Child process */
-		#ifdef USE_GKSU
-		execl(GKSU_BINARY_PATH, GKSU_BINARY_PATH, "-D", "gopenvpn", command, NULL);
-		#else
-		char port_string[16];
-		char *file = self->file;
-		char *slash = strrchr(file, '/');
-		if (slash)
-			file = slash+1;
-
-		snprintf(port_string, sizeof(port_string), "%d", port);
-
-		execl(GOPENVPNSTART_BINARY_PATH,
-			  GOPENVPNSTART_BINARY_PATH,
-			  file,
-			  port_string,
-			  NULL);
-		#endif
-			  
+		execve(PKEXEC_BINARY_PATH, ovpn_args, NULL);
 		exit(-1);
 	}
 
-	#ifdef USE_GKSU
-	g_free(command);
-	#endif
-
 	waitpid(pid, &status, 0);
+
+	g_free(ovpn_args[3]);
+	g_free(ovpn_args[11]);
+	g_free(ovpn_args[13]);
 	
 	if (status != 0)
 	{
@@ -1193,16 +1177,10 @@ void vpn_applet_edit_config_cb(GtkButton *button, gpointer user_data)
 		if (!editor)
 			editor = g_strdup(GEDIT_BINARY_PATH);
 
-		#ifdef USE_GKSU
-		argv[0] = GKSU_BINARY_PATH;
+		argv[0] = PKEXEC_BINARY_PATH;
 		argv[1] = editor;
 		argv[2] = config->file;
 		argv[3] = NULL;
-		#else
-		argv[0] = editor;
-		argv[1] = config->file;
-		argv[2] = NULL;
-		#endif
 		
 		g_spawn_async(NULL, argv, NULL, 0,
 					  NULL, NULL, NULL, NULL);

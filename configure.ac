@@ -54,27 +54,22 @@ fi
 AC_DEFINE_UNQUOTED(OPENVPN_BINARY_PATH, "$OPENVPN_BINARY_PATH", [Define to path of openvpn binary])
 AC_SUBST(OPENVPN_BINARY_PATH)
 
-# gksu binary path
-AC_ARG_WITH(gksu, AC_HELP_STRING([--with-gksu=/path/to/gksu], [path to gksu])) 
-USE_GKSU=0
-if test "x${with_gksu}" = x; then
-  AC_PATH_PROG(GKSU_BINARY_PATH, gksu, [], $PATH:/usr/bin)
-  if ! test -x "$GKSU_BINARY_PATH"; then
-	AC_MSG_ERROR(gksu was not installed)
+# pkexec binary path
+AC_ARG_WITH(pkexec, AC_HELP_STRING([--with-pkexec=/path/to/pkexec], [path to PolicyKit pkexec]))
+if test "x${with_pkexec}" = x; then
+  AC_PATH_PROG(PKEXEC_BINARY_PATH, pkexec, [], $PATH:/usr/bin)
+  if ! test -x "$PKEXEC_BINARY_PATH"; then
+	AC_MSG_ERROR(PolicyKit pkexec was not installed)
   fi
-  USE_GKSU=1
 else
-  if test "x${with_gksu}" = xno; then
-    USE_GKSU = 0
+  if test "x${with_pkexec}" = xno; then
+    USE_PKEXEC = 0
   else
-    GKSU_BINARY_PATH="$with_gksu"
-    USE_GKSU=1
+    PKEXEC_BINARY_PATH="$with_pkexec"
   fi
 fi
-AC_DEFINE_UNQUOTED(GKSU_BINARY_PATH, "$GKSU_BINARY_PATH", [Define to path of gksu binary])
-AC_SUBST(GKSU_BINARY_PATH)
-AC_DEFINE_UNQUOTED(USE_GKSU, $USE_GKSU, [Indicates whether gksu is used])
-AC_SUBST(USE_GSKU)
+AC_DEFINE_UNQUOTED(PKEXEC_BINARY_PATH, "$PKEXEC_BINARY_PATH", [Define to path of PolicyKit pkexec binary])
+AC_SUBST(PKEXEC_BINARY_PATH)
 
 AC_DEFINE_UNQUOTED(GOPENVPNSTART_BINARY_PATH, "$myprefix/bin/gopenvpnstart", [Path of gopenvpnstart binary])
 AC_SUBST(GOPENVPNSTART_BINARY_PATH)
