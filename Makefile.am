@@ -1,3 +1,1 @@
-SUBDIRS = src \
-		  po \
-		  pixmaps
+SUBDIRS = src po pixmaps polkit

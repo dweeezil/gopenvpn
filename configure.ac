@@ -113,8 +113,11 @@ PKG_CHECK_MODULES(X11, x11)
 AC_SUBST(X11_CFLAGS)
 AC_SUBST(X11_LIBS)
 
+PKG_CHECK_MODULES(POLKIT, polkit-gobject-1 >= 0.97)
+
 AC_OUTPUT([Makefile
            pixmaps/Makefile
+	   polkit/Makefile
            src/Makefile
            po/Makefile.in])
 
