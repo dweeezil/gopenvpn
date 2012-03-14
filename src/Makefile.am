@@ -18,8 +18,8 @@ AM_CFLAGS = -Wall -ansi -pedantic		\
 	-DGNOMELOCALEDIR=\"$(datadir)/locale\"	\
 	-DGLADE_DIR=\""$(datadir)/gopenvpn"\"
 
-gopenvpn_SOURCES = gopenvpn.c			\
-	eggtrayicon.c
+gopenvpn_SOURCES = gopenvpn.c gopenvpn.h	\
+	eggtrayicon.c eggtrayicon.h
 
 gopenvpnstart_SOURCES = gopenvpnstart.c
 

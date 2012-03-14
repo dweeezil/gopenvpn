@@ -1,2 +1,3 @@
 src/gopenvpn.c
+src/eggtrayicon.c
 src/gopenvpn.glade

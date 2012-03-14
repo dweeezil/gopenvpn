@@ -1,4 +1,4 @@
-AC_INIT(gopenvpn, 0.1)
+AC_INIT(gopenvpn, 0.6)
 AC_CONFIG_SRCDIR(src/gopenvpn.c)
 AC_PREREQ(2.57)
 AM_INIT_AUTOMAKE
