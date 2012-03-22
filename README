@@ -16,6 +16,7 @@ gopenvpn is free software released under the GNU General Public License.
 See file COPYING for details.
 
 gopenvpn is Copyright (c) 2006 Gary Grossman <gary@softwareasart.com>
+                          2012 David Sommerseth <dazo@users.sourceforge.net>
 
 Installing
 ----------
@@ -28,27 +29,23 @@ The following libraries are prerequisites:
  * gtk+-2.0
  * glade-2.0
  * gnome-keyring (for remembering passphrases)
+ * polkit-0.96 (or newer)
 
 The following packages are also prerequisites:
 
- * gksu (for authorizing editing configuration files)
  * gedit (for editing configuration files)
-
-The procedure for installing these prerequisites will vary depending on
-your operating system.  To install the prerequisites in Ubuntu 6.06 Dapper,
-you could type:
-
-  sudo apt-get install libglib2.0-dev libgtk2.0-dev libglade2-dev libgnome-keyring-dev gksu gedit
 
 2. Build it
 
-cd gopenvpn
-./configure
-make
+   $ cd gopenvpn
+   $ ./autogen.sh
+   $ ./configure
+   $ make
 
 3. Install it
 
-sudo make install
+As root, run:
+   # make install
 
 4. To run gopenvpn on login, add /usr/local/bin/gopenvpn to your GNOME
 session's startup items.
