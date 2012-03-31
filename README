@@ -38,7 +38,7 @@ The following packages are also prerequisites:
 2. Build it
 
    $ cd gopenvpn
-   $ ./autogen.sh
+   $ autoreconf -vi
    $ ./configure
    $ make
 
