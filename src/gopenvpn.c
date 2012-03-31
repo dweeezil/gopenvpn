@@ -41,6 +41,7 @@
 #include <glade/glade.h>
 #include <gnome-keyring.h>
 
+#include "gettext.h"
 #include "gopenvpn.h"
 
 /*
@@ -1640,9 +1641,10 @@ void vpn_applet_init(VPNApplet *applet)
 
 int main(int argc, char *argv[])
 {
-	bindtextdomain(GETTEXT_PACKAGE, GNOMELOCALEDIR);
-	bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8");
-	textdomain(GETTEXT_PACKAGE);
+	setlocale(LC_ALL, "");
+	bindtextdomain(PACKAGE, LOCALEDIR);
+	bind_textdomain_codeset(PACKAGE, "UTF-8");
+	textdomain(PACKAGE);
 	
 	gtk_init(&argc, &argv);
 	glade_init();

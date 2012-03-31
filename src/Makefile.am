@@ -1,6 +1,10 @@
-ubindir = ${prefix}/bin
+AM_CPPFLAGS = -DLOCALEDIR=\"$(localedir)\"
+LDADD = $(LIBINTL)
 
-bin_PROGRAMS = gopenvpn gopenvpnstart
+bin_PROGRAMS = gopenvpn
+if INSTALL_GOVPNSTART
+	bin_PROGRAMS += gopenvpnstart
+endif
 
 gopenvpn_LDADD = $(GTK_LIBS)	\
 	$(GLADE_LIBS)		\
@@ -19,14 +23,12 @@ AM_CFLAGS = -Wall -ansi -pedantic		\
 	-DGLADE_DIR=\""$(datadir)/gopenvpn"\"
 
 gopenvpn_SOURCES = gopenvpn.c gopenvpn.h	\
-	eggtrayicon.c eggtrayicon.h
+	eggtrayicon.c eggtrayicon.h gettext.h
 
-gopenvpnstart_SOURCES = gopenvpnstart.c
+if INSTALL_GOVPNSTART
+	gopenvpnstart_SOURCES = gopenvpnstart.c
+endif
 
 gladedir = $(datadir)/gopenvpn
 glade_DATA = gopenvpn.glade
 EXTRA_DIST = $(glade_DATA)
-
-install-am: all-am
-	$(MAKE) $(AM_MAKEFLAGS) install-exec-am install-data-am
-	chmod -f 4755 $(DESTDIR)$(ubindir)/gopenvpnstart
