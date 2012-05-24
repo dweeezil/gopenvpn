@@ -33,6 +33,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <paths.h>
 
 #include <glib.h>
 #include <glib/gi18n.h>
@@ -43,6 +44,10 @@
 
 #include "gettext.h"
 #include "gopenvpn.h"
+
+#ifndef _PATH_VARRUN
+#define	_PATH_VARRUN	"/var/run/"
+#endif
 
 /*
  * If GtkStatusIcon is available (Gtk+ 2.10 and later), use it.  Otherwise, use
@@ -393,6 +398,8 @@ void vpn_config_start(VPNConfig *self)
 	VPNApplet *applet = self->applet;
 	char *ovpn_args[] = {PKEXEC_BINARY_PATH, OPENVPN_BINARY_PATH, NULL, NULL, NULL, NULL, NULL, NULL,
 			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+	char *pidfilename = NULL;
+	FILE *fp;
 	int s;
 	pid_t pid;
 	socklen_t namelen;
@@ -452,7 +459,21 @@ void vpn_config_start(VPNConfig *self)
 		exit(-1);
 	}
 
+	/* Write the name of the configuration file into a pid file */
+	if ((pidfilename = g_strdup_printf(_PATH_VARRUN "gopenvpn.%d", pid)) != NULL
+	 && (fp = fopen(pidfilename, "w") != NULL))
+	{
+		fprintf(fp, "%s", self->file);
+		fclose(fp);
+	}
+
+	/* Wait for OpenVPN to finish */
 	waitpid(pid, &status, 0);
+
+	if (pidfilename) {
+		unlink(pidfilename);
+		g_free(pidfilename);
+	}
 
 	g_free(ovpn_args[3]);
 	g_free(ovpn_args[11]);
