@@ -397,8 +397,8 @@ void vpn_config_start(VPNConfig *self)
 {
 	VPNApplet *applet = self->applet;
 	char *ovpn_args[] = {PKEXEC_BINARY_PATH, OPENVPN_BINARY_PATH, NULL, NULL, NULL, NULL, NULL, NULL,
-			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
-	char *pidfilename = NULL, *dot;
+			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+	char *pidfilename;
 	FILE *fp;
 	int s;
 	pid_t pid;
@@ -450,6 +450,10 @@ void vpn_config_start(VPNConfig *self)
 	ovpn_args[12] = "--config";
 	ovpn_args[13] = g_strdup_printf("%s", self->file);
 
+	/* Set the pidfile to gopenvpn.<conffilebase>.pid */
+	ovpn_args[14] = "--writepid";
+	ovpn_args[15] = g_strdup_printf(_PATH_VARRUN "gopenvpn.%s.pid", self->name);
+
 	/* Start the openvpn subprocess */
 	pid = fork();
 	if (!pid)
@@ -459,33 +463,14 @@ void vpn_config_start(VPNConfig *self)
 		exit(-1);
 	}
 
-	/* Write the pid into a file named gopenvpn.<conffilebase>.pid */
-	if ((dot = strrchr(self->file, '.')) != NULL)
-		*dot = '\0';
-	if ((pidfilename = g_strdup_printf(_PATH_VARRUN "gopenvpn.%s.pid", self->file)) != NULL)
-	{
-		if ((fp = fopen(pidfilename, "w") != NULL))
-		{
-			fprintf(fp, "%d", pid);
-			fclose(fp);
-		}
-	}
-	if (dot)
-		*dot = '.';
-
-	/* Wait for OpenVPN to finish */
 	waitpid(pid, &status, 0);
-
-	if (pidfilename) {
-		unlink(pidfilename);
-		g_free(pidfilename);
-	}
 
 	g_free(ovpn_args[3]);
 	g_free(ovpn_args[11]);
 	g_free(ovpn_args[13]);
+	g_free(ovpn_args[15]);
 	
-	if (status != 0)
+	if (status != 0 || pid == -1)
 	{
 		vpn_applet_display_error(applet, _("Error launching OpenVPN subprocess"));
 		return;
