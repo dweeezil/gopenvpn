@@ -35,6 +35,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <paths.h>
+#include <ctype.h>
 
 #include <glib.h>
 #include <glib/gi18n.h>
@@ -54,6 +55,12 @@
 #ifndef _PATH_VARTMP
 #define	_PATH_VARTMP	"/var/tmp/"
 #endif
+
+/* Filename of a state file given a connection's name */
+static char statefilenamefmt[] = _PATH_VARTMP "gopenvpn.%s.state";
+
+/* Filename of a pid file given a connection's name */
+static char pidfilenamefmt[] = _PATH_VARRUN "gopenvpn.%s.pid";
 
 /*
  * If GtkStatusIcon is available (Gtk+ 2.10 and later), use it.  Otherwise, use
@@ -99,6 +106,8 @@ typedef struct VPNConfig
 	struct sockaddr_in sockaddr;
 	gboolean           auto_connect;
 	gboolean           use_keyring;
+	char              *statefilename;
+	char              *pidfilename;
 }
 VPNConfig;
 
@@ -352,6 +361,8 @@ gboolean vpn_config_try_connect(gpointer user_data)
 	VPNConfig *self = (VPNConfig*)user_data;
 	VPNApplet *applet = (VPNApplet*)self->applet;
 	int s;
+	FILE *pidfp = NULL, *statefp = NULL; 
+	char pidbuf[100];
 	
 	/* Connect to the gopenvpn-server */
 	s = socket(AF_INET, SOCK_STREAM, 0);
@@ -383,6 +394,20 @@ gboolean vpn_config_try_connect(gpointer user_data)
 		
 	g_io_add_watch(self->channel, G_IO_IN|G_IO_HUP|G_IO_ERR,
 				   (GIOFunc)vpn_config_io_callback, self);
+
+	/* Get the pid and write it into the state file */
+	if (self->pidfilename
+	 && (pidfp = g_fopen(self->pidfilename, "r")) != NULL
+	 && fgets(pidbuf, sizeof pidbuf, pidfp)
+	 && self->statefilename
+	 && (statefp = g_fopen(self->statefilename, "a")) != NULL)
+	{
+		if (isdigit(pidbuf[0]))
+			fprintf(statefp, "pid=%ld\n", strtol(pidbuf, NULL, 10));
+		fclose(statefp);
+	}
+	if (pidfp)
+		fclose(pidfp);
 	
 	return FALSE;
 }
@@ -406,8 +431,8 @@ void vpn_config_start(VPNConfig *self)
 	char *ovpn_args[] = {PKEXEC_BINARY_PATH, OPENVPN_BINARY_PATH, NULL, NULL, NULL, NULL, NULL, NULL,
 			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
-	char *portfilename;
-	FILE *portfilefp;
+	char *statefilename;
+	FILE *statefilefp;
 	int s;
 	pid_t pid;
 	socklen_t namelen;
@@ -445,13 +470,12 @@ void vpn_config_start(VPNConfig *self)
 	port = ntohs(self->sockaddr.sin_port);
 	close(s);
 
-	/* Stash the port in /var/tmp/gopenvpn.<conf>.mgmt so that a subsequent gopenvpn
-	   instance can reconnect. */
-	if ((portfilename = g_strdup_printf(_PATH_VARTMP "gopenvpn.%s.mgmt", self->name)) != NULL
-	 && (portfilefp = g_fopen(portfilename, "w")) != NULL)
+	/* Write the port number into /var/tmp/gopenvpn.<conf>.state */
+	if ((self->statefilename = g_strdup_printf(statefilenamefmt, self->name)) != NULL
+	 && (statefilefp = g_fopen(self->statefilename, "w")) != NULL)
 	{
-		fprintf(portfilefp, "%d\n", port);
-		fclose(portfilefp);
+		fprintf(statefilefp, "mgmtport=%d\n", port);
+		fclose(statefilefp);
 	}
 
 	ovpn_args[2]  = "--cd";
@@ -467,6 +491,9 @@ void vpn_config_start(VPNConfig *self)
 	ovpn_args[12] = "--config";
 	ovpn_args[13] = g_strdup_printf("%s", self->file);
 
+	ovpn_args[14] = "--writepid";
+	self->pidfilename = ovpn_args[15] = g_strdup_printf(pidfilenamefmt, self->name);
+
 	/* Start the openvpn subprocess */
 	pid = fork();
 	if (!pid)
@@ -481,7 +508,6 @@ void vpn_config_start(VPNConfig *self)
 	g_free(ovpn_args[3]);
 	g_free(ovpn_args[11]);
 	g_free(ovpn_args[13]);
-	g_free(ovpn_args[15]);
 	
 	if (status != 0 || pid == -1)
 	{
@@ -565,6 +591,8 @@ void vpn_config_init(VPNConfig *self,
 	self->use_keyring  = TRUE;
 	self->buffer       = gtk_text_buffer_new(NULL);
 	self->name         = g_strdup(file);
+	self->statefilename = NULL;
+	self->pidfilename  = NULL;
 
 	slash = strrchr(file, '/');
 	self->name = g_strdup(slash ? slash+1 : file);
@@ -1419,31 +1447,41 @@ void vpn_applet_init_configs(VPNApplet *applet)
 void vpn_applet_reconnect_to_mgmt_each(gpointer key, gpointer value, gpointer user_data)
 {
 	static FILE *fp = NULL;
-	char *portfilename = NULL;
+	char *statefilename = NULL;
 	char buf[100];
 	int port;
+	VPNConfig *self = (VPNConfig *)user_data;
 
 	if (!value)
 		return;
 
-	if ((portfilename = g_strdup_printf(_PATH_VARTMP "gopenvpn.%d.mgmt", port)) != NULL
-	 && (fp = g_fopen(portfilename, "r")) != NULL
-	 && fgets(buf, sizeof buf, fp))
+	if (self->statefilename == NULL)
+		if ((self->statefilename = g_strdup_printf(statefilenamefmt, (char *)value)) == NULL)
+			return;
+
+	if ((fp = g_fopen(self->statefilename, "r")) != NULL)
 	{
-		port = strtol(buf, NULL, 10);
-		/* XXX ... connect to the management interface for this connection */
+		while (fgets(buf, sizeof buf, fp))
+		{
+			if (strncmp(buf, "port=", 5) == 0)
+			{
+				port = strtol(buf + 5, NULL, 10);
+				
+				/* XXX ... connect to the management interface for this connection */
+			}
+		}
 	}
 	if (fp)
 		fclose(fp);
-	if (portfilename)
-		g_free(portfilename);
+	if (statefilename)
+		g_free(statefilename);
 }
 
 void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 {
 	/* Check whether there's a goptnvpn.<conf>.mgmt file and try to re-connect
 	   to the OpenVPN management interface. */
-	g_hash_table_foreach(applet->configs_table, vpn_applet_reconnect_to_mgmt_each, NULL);
+	g_hash_table_foreach(applet->configs_table, vpn_applet_reconnect_to_mgmt_each, applet);
 }
 
 void vpn_applet_init_status_icon(VPNApplet *applet)
@@ -1656,7 +1694,7 @@ void vpn_applet_update_preferences(VPNApplet *applet)
 
 	if (data)
 	{
-		FILE *fp = fopen(preferences_path, "w");
+		FILE *fp = g_fopen(preferences_path, "w");
 		fputs(data, fp);
 		fclose(fp);
 		
