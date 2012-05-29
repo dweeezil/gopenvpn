@@ -1470,8 +1470,11 @@ void vpn_applet_init_configs(VPNApplet *applet)
 void vpn_applet_reconnect_to_mgmt_each(gpointer key, gpointer value, gpointer user_data)
 {
 	static FILE *fp = NULL;
-	char buf[100];
-	unsigned short port;
+	char buf[100], *procdir = NULL;
+	unsigned short port = 0;
+	pid_t pid = 0;
+	struct stat st;
+	int statret;
 
 	char *conn = (char *)key;
 	VPNConfig *self = (VPNConfig *)value;
@@ -1485,24 +1488,40 @@ void vpn_applet_reconnect_to_mgmt_each(gpointer key, gpointer value, gpointer us
 		while (fgets(buf, sizeof buf, fp))
 		{
 			if (strncmp(buf, "mgmtport=", 9) == 0)
-			{
-				self->sockaddr.sin_family      = AF_INET;
-				self->sockaddr.sin_addr.s_addr = INADDR_ANY;
 				port = strtol(buf + 9, NULL, 10);
-				self->sockaddr.sin_port        = htons(port);
-				self->retry = MAX_RETRY - 1;
-				if (vpn_config_try_connect(self) == 0)
-				{
-					set_menuitem_label(self->menuitem, _("Disconnect %s"), self->name);
-					vpn_applet_update_count_and_icon(self->applet);
-				}
-				self->state = RESTART;
-				break;
-			}
+			else if (strncmp(buf, "pid=", 4) == 0)
+				pid = strtol(buf + 4, NULL, 10);
 		}
-	}
-	if (fp)
+		if (pid
+		 && port
+		 && (procdir = g_strdup_printf("/proc/%d", pid)) != NULL
+		 && (statret = stat(procdir, &st)) == 0)
+		{
+			self->sockaddr.sin_family      = AF_INET;
+			self->sockaddr.sin_addr.s_addr = INADDR_ANY;
+			self->sockaddr.sin_port        = htons(port);
+			self->retry                    = MAX_RETRY - 1;
+			if (vpn_config_try_connect(self) == 0)
+			{
+				set_menuitem_label(self->menuitem, _("Disconnect %s"), self->name);
+				vpn_applet_update_count_and_icon(self->applet);
+			}
+			self->state = RESTART;
+		}
+		if (procdir)
+		{
+			/* Clean up - if we had a /proc/<pid> dir but couldn't stat it,
+			   remove the dead stat file. */
+			if (statret)
+			{
+				unlink(self->statefilename);
+				g_free(self->statefilename);
+				self->statefilename = NULL;
+			}
+			g_free(procdir);
+		}
 		fclose(fp);
+	}
 }
 
 void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
