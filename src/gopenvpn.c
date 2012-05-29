@@ -85,9 +85,9 @@ static char pidfilenamefmt[] = _PATH_VARRUN "gopenvpn.%s.pid";
 
 #define INACTIVE   0
 #define CONNECTING 1
-#define CONNECTED  2
-#define RESTART    3
-#define SENTSTATE  4
+#define RECONNECTING 2
+#define SENTSTATE  3
+#define CONNECTED  4
 
 typedef struct VPNApplet VPNApplet;
 
@@ -555,10 +555,10 @@ void vpn_config_start(VPNConfig *self)
 	self->state = CONNECTING;
 	vpn_applet_update_count_and_icon(applet);
 
-    /* The OpenVPN management port may take a little while to come up.
-	 * Sleep a few seconds and give it a few tries. */
-    self->retry = 0;
-    g_timeout_add(1000, vpn_config_try_connect, self);
+	/* The OpenVPN management port may take a little while to come up.
+	   Sleep a few seconds and give it a few tries. */
+	self->retry = 0;
+	g_timeout_add(1000, vpn_config_try_connect, self);
 }
 
 void vpn_config_free(VPNConfig *self)
@@ -753,11 +753,10 @@ gboolean vpn_config_io_callback(GSource *source,
 
 	else if (starts_with(line, ">INFO:"))
 	{
-		if (self->state == RESTART)
+		if (self->state == RECONNECTING)
 		{
-			self->state = CONNECTING;
-			vpn_applet_update_count_and_icon(applet);
 			self->state = SENTSTATE;
+			vpn_applet_update_count_and_icon(applet);
 			socket_printf(self->channel, "state\r\n", NULL);
 		}
 		else
@@ -1124,6 +1123,8 @@ void vpn_applet_set_icon_state(VPNApplet *applet, int state)
 		gtk_status_icon_set_from_file(applet->status_icon, applet->closed_image);
 		break;
 	case CONNECTING:
+	case RECONNECTING:
+	case SENTSTATE:
 		gtk_status_icon_set_blinking(applet->status_icon, TRUE);
 		gtk_status_icon_set_from_file(applet->status_icon, applet->connecting_image);
 		break;
@@ -1140,6 +1141,8 @@ void vpn_applet_set_icon_state(VPNApplet *applet, int state)
 		gtk_image_set_from_file(GTK_IMAGE(applet->tray_image), applet->closed_image);
 		break;
 	case CONNECTING:
+	case RECONNECTING:
+	case SENTSTATE:
 		gtk_image_set_from_file(GTK_IMAGE(applet->tray_image), applet->connecting_image);
 		if (!applet->icon_blinking)
 		{
@@ -1167,7 +1170,7 @@ void vpn_applet_update_count_and_icon(VPNApplet *applet)
 		VPNConfig *config = &applet->configs[i];
 		if (config->state == CONNECTED)
 			count++;
-		else if (config->state == CONNECTING)
+		else if (config->state == CONNECTING || config->state == RECONNECTING || config->state == SENTSTATE)
 			new_connecting = TRUE;
 	}
 
@@ -1514,7 +1517,7 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 	unsigned short port = 0;
 	pid_t pid = 0;
 	struct stat st;
-	int statret, i;
+	int statret, i, tristate;
 	VPNConfig *config;
 
 	if (!applet->configs)
@@ -1549,13 +1552,13 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 				{
 					set_menuitem_label(config->menuitem, _("Disconnect %s"), config->name);
 					vpn_applet_update_count_and_icon(config->applet);
+					config->state = RECONNECTING;
 				}
-				config->state = RESTART;
 			}
+			/* Clean up - if we had a /proc/<pid> dir but couldn't stat it,
+			   remove the dead stat file. */
 			if (procdir)
 			{
-				/* Clean up - if we had a /proc/<pid> dir but couldn't stat it,
-				   remove the dead stat file. */
 				if (statret)
 				{
 					unlink(config->statefilename);
@@ -1566,6 +1569,8 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 			}
 			fclose(fp);
 		}
+		if (config->state == INACTIVE && config->auto_connect)
+			vpn_config_start(config);
 	}
 }
 
@@ -1796,17 +1801,6 @@ void vpn_applet_init_signals(VPNApplet *applet)
 	signal(SIGHUP, signal_handler);	
 }
 
-void vpn_applet_autoconnect(VPNApplet *applet)
-{
-	int i;
-	for (i=0; i<applet->configs_count; i++)
-	{
-		VPNConfig *config = &applet->configs[i];
-		if (config->auto_connect)
-			vpn_config_start(config);
-	}
-}
-
 void vpn_applet_init(VPNApplet *applet)
 {
 	vpn_applet_init_signals(applet);
@@ -1816,7 +1810,6 @@ void vpn_applet_init(VPNApplet *applet)
 	vpn_applet_init_preferences(applet);
 	vpn_applet_init_popup_menu(applet);
 	vpn_applet_reconnect_to_mgmt(applet);
-	vpn_applet_autoconnect(applet);
 }
 
 int main(int argc, char *argv[])
