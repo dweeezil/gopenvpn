@@ -652,10 +652,6 @@ gboolean vpn_config_io_callback(GSource *source,
 	VPNApplet *applet = self->applet;
 	char *line;
 	char **fields = NULL;
-	static FILE *xfp;
-
-	if (!xfp)
-		xfp = fopen("/dev/tty", "w");
 
 	/* We may have shut down the connection, but not yet fired
 	 * the glib IOWatch callback */
