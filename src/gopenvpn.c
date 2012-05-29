@@ -353,6 +353,12 @@ void vpn_config_stop(VPNConfig *self)
 
 	set_menuitem_label(self->menuitem, _("Connect %s"), self->name);
 
+	if (self->statefilename)
+	{
+		unlink(self->statefilename);
+		g_free(self->statefilename);
+		self->statefilename = NULL;
+	}
 	self->state = INACTIVE;
 	vpn_applet_update_count_and_icon(applet);
 }
