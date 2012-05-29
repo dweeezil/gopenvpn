@@ -268,6 +268,33 @@ void socket_printf(GIOChannel *channel,
 
 	g_free(text);
 }
+
+GString *openvpn_mgmt_string_escape(gchar *str)
+{
+	char *s;
+	GString *rval;
+	gchar c;
+
+	if (!str)
+		return NULL;
+
+	for (s = str, rval = g_string_new("") ; (c = *s) != '\0' ; ++s)
+	{
+		switch (c)
+		{
+			case '\\':
+				g_string_append(rval, "\\\\");
+				break;
+			case '"':
+				g_string_append_c(rval, '"');
+				break;
+			default:
+				g_string_append_c(rval, c);
+				break;
+		}
+	}
+	return rval;
+}
 	 
 void set_menuitem_label(GtkWidget *menuitem,
 						const char *format,
@@ -657,6 +684,7 @@ gboolean vpn_config_io_callback(GSource *source,
 	if (!strcmp(line, ">PASSWORD:Need 'Private Key' password"))
 	{
 		char *password;
+		GString *GSpassword;
 		gboolean got_keyring = FALSE;
 
 		if (self->use_keyring)
@@ -675,17 +703,21 @@ gboolean vpn_config_io_callback(GSource *source,
 										 &password))
 				return FALSE;
 		}
+
+		GSpassword = openvpn_mgmt_string_escape(password);
+		g_free(password);
 		
 		socket_printf(self->channel,
-					  "password \"Private Key\" %s\r\n",
-					  password);
-		
-		g_free(password);
+					  "password \"Private Key\" \"%s\"\r\n",
+					  GSpassword->str);
+
+		g_string_free(GSpassword, TRUE);
 	}
 
 	else if (!strcmp(line, ">PASSWORD:Need 'Auth' username/password"))
 	{
 		char *username, *password;
+		GString *GSusername, *GSpassword;
 		gboolean got_keyring = FALSE;
 
 		if (self->use_keyring)
@@ -704,17 +736,23 @@ gboolean vpn_config_io_callback(GSource *source,
 										 &password))
 				return FALSE;
 		}
-		
-		socket_printf(self->channel,
-					  "username \"Auth\" %s\r\n",
-					  username);
-		
-		socket_printf(self->channel,
-					  "password \"Auth\" %s\r\n",
-					  password);
-		
+
+		GSusername = openvpn_mgmt_string_escape(username);
 		g_free(username);
+		GSpassword = openvpn_mgmt_string_escape(password);
 		g_free(password);
+		
+		socket_printf(self->channel,
+					  "username \"Auth\" \"%s\"\r\n",
+					  GSusername->str);
+		
+		socket_printf(self->channel,
+					  "password \"Auth\" \"%s\"\r\n",
+					  GSpassword->str);
+
+		g_string_free(GSusername, TRUE);
+		g_string_free(GSpassword, TRUE);
+		
 	}
 
 	else if (starts_with(line, ">INFO:"))
