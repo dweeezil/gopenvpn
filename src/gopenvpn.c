@@ -86,6 +86,8 @@ static char pidfilenamefmt[] = _PATH_VARRUN "gopenvpn.%s.pid";
 #define INACTIVE   0
 #define CONNECTING 1
 #define CONNECTED  2
+#define RESTART    3
+#define SENTSTATE  4
 
 typedef struct VPNApplet VPNApplet;
 
@@ -356,14 +358,14 @@ void vpn_config_stop(VPNConfig *self)
 }
 
 
-gboolean vpn_config_try_connect(gpointer user_data)
+int vpn_config_try_connect(gpointer user_data)
 {
 	VPNConfig *self = (VPNConfig*)user_data;
 	VPNApplet *applet = (VPNApplet*)self->applet;
 	int s;
 	FILE *pidfp = NULL, *statefp = NULL; 
 	char pidbuf[100];
-	
+
 	/* Connect to the gopenvpn-server */
 	s = socket(AF_INET, SOCK_STREAM, 0);
 	if (s < 0)
@@ -381,10 +383,10 @@ gboolean vpn_config_try_connect(gpointer user_data)
 		{
 			vpn_config_stop(self);
 			vpn_applet_display_error(applet, _("Error connecting to OpenVPN management interface"));
-			return FALSE;
+			return -1;
 		}
 		else
-			return TRUE;
+			return 1;
 	}
 
 	/* We're connected! */
@@ -409,7 +411,7 @@ gboolean vpn_config_try_connect(gpointer user_data)
 	if (pidfp)
 		fclose(pidfp);
 	
-	return FALSE;
+	return 0;
 }
 
 void vpn_config_clear_log(VPNConfig *self)
@@ -431,7 +433,6 @@ void vpn_config_start(VPNConfig *self)
 	char *ovpn_args[] = {PKEXEC_BINARY_PATH, OPENVPN_BINARY_PATH, NULL, NULL, NULL, NULL, NULL, NULL,
 			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
-	char *statefilename;
 	FILE *statefilefp;
 	int s;
 	pid_t pid;
@@ -618,6 +619,10 @@ gboolean vpn_config_io_callback(GSource *source,
 	VPNApplet *applet = self->applet;
 	char *line;
 	char **fields = NULL;
+	static FILE *xfp;
+
+	if (!xfp)
+		xfp = fopen("/dev/tty", "w");
 
 	/* We may have shut down the connection, but not yet fired
 	 * the glib IOWatch callback */
@@ -708,17 +713,27 @@ gboolean vpn_config_io_callback(GSource *source,
 
 	else if (starts_with(line, ">INFO:"))
 	{
-		/* Tell OpenVPN to log in real time */
-		socket_printf(self->channel, "log on all\r\n", NULL);
+		if (self->state == RESTART)
+		{
+			self->state = CONNECTING;
+			vpn_applet_update_count_and_icon(applet);
+			self->state = SENTSTATE;
+			socket_printf(self->channel, "state\r\n", NULL);
+		}
+		else
+		{
+			/* Tell OpenVPN to log in real time */
+			socket_printf(self->channel, "log on all\r\n", NULL);
 		
-		/* Turn on real-time state notifications */
-		socket_printf(self->channel, "state on\r\n", NULL);
+			/* Turn on real-time state notifications */
+			socket_printf(self->channel, "state on\r\n", NULL);
 		
-		/* Tell OpenVPN to retry on bad passwords */
-		socket_printf(self->channel, "auth-retry interact\r\n", NULL);
+			/* Tell OpenVPN to retry on bad passwords */
+			socket_printf(self->channel, "auth-retry interact\r\n", NULL);
 		
-		/* Let OpenVPN start its business */
-		socket_printf(self->channel, "hold release\r\n", NULL);
+			/* Let OpenVPN start its business */
+			socket_printf(self->channel, "hold release\r\n", NULL);
+		}
 	}
 
 	else if ((fields = parse_openvpn_output(line,
@@ -769,6 +784,15 @@ gboolean vpn_config_io_callback(GSource *source,
 							   &iter,
 							   line,
 							   strlen(line));
+	}
+	else if (self->state == SENTSTATE)
+	{
+		fields = parse_openvpn_output(line, "", 5);
+		if (!strcmp(fields[1], "CONNECTED"))
+		{
+			self->state = CONNECTED;
+			vpn_applet_update_count_and_icon(applet);
+		}
 	}
 		
 	g_free(line);
@@ -1438,8 +1462,7 @@ void vpn_applet_init_configs(VPNApplet *applet)
 	{
 		g_hash_table_insert(applet->configs_table,
 							applet->configs[i].name,
-							NULL); 
-							/* &applet->configs[i]); Huh? XXX */
+							&applet->configs[i]);
 	}
 	
 }
@@ -1447,41 +1470,46 @@ void vpn_applet_init_configs(VPNApplet *applet)
 void vpn_applet_reconnect_to_mgmt_each(gpointer key, gpointer value, gpointer user_data)
 {
 	static FILE *fp = NULL;
-	char *statefilename = NULL;
 	char buf[100];
-	int port;
-	VPNConfig *self = (VPNConfig *)user_data;
+	unsigned short port;
 
-	if (!value)
-		return;
+	char *conn = (char *)key;
+	VPNConfig *self = (VPNConfig *)value;
 
 	if (self->statefilename == NULL)
-		if ((self->statefilename = g_strdup_printf(statefilenamefmt, (char *)value)) == NULL)
+		if ((self->statefilename = g_strdup_printf(statefilenamefmt, conn)) == NULL)
 			return;
 
 	if ((fp = g_fopen(self->statefilename, "r")) != NULL)
 	{
 		while (fgets(buf, sizeof buf, fp))
 		{
-			if (strncmp(buf, "port=", 5) == 0)
+			if (strncmp(buf, "mgmtport=", 9) == 0)
 			{
-				port = strtol(buf + 5, NULL, 10);
-				
-				/* XXX ... connect to the management interface for this connection */
+				self->sockaddr.sin_family      = AF_INET;
+				self->sockaddr.sin_addr.s_addr = INADDR_ANY;
+				port = strtol(buf + 9, NULL, 10);
+				self->sockaddr.sin_port        = htons(port);
+				self->retry = MAX_RETRY - 1;
+				if (vpn_config_try_connect(self) == 0)
+				{
+					set_menuitem_label(self->menuitem, _("Disconnect %s"), self->name);
+					vpn_applet_update_count_and_icon(self->applet);
+				}
+				self->state = RESTART;
+				break;
 			}
 		}
 	}
 	if (fp)
 		fclose(fp);
-	if (statefilename)
-		g_free(statefilename);
 }
 
 void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 {
-	/* Check whether there's a goptnvpn.<conf>.mgmt file and try to re-connect
+	/* Check whether there's a gopenvpn.<conf>.mgmt file and try to re-connect
 	   to the OpenVPN management interface. */
-	g_hash_table_foreach(applet->configs_table, vpn_applet_reconnect_to_mgmt_each, applet);
+	g_hash_table_foreach(applet->configs_table, vpn_applet_reconnect_to_mgmt_each, NULL);
 }
 
 void vpn_applet_init_status_icon(VPNApplet *applet)
@@ -1729,8 +1757,8 @@ void vpn_applet_init(VPNApplet *applet)
 	vpn_applet_init_status_icon(applet);
 	vpn_applet_init_configs(applet);
 	vpn_applet_init_preferences(applet);
-	vpn_applet_reconnect_to_mgmt(applet);
 	vpn_applet_init_popup_menu(applet);
+	vpn_applet_reconnect_to_mgmt(applet);
 	vpn_applet_autoconnect(applet);
 }
 
