@@ -1473,68 +1473,66 @@ void vpn_applet_init_configs(VPNApplet *applet)
 	
 }
 
-void vpn_applet_reconnect_to_mgmt_each(gpointer key, gpointer value, gpointer user_data)
+void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 {
 	static FILE *fp = NULL;
 	char buf[100], *procdir = NULL;
 	unsigned short port = 0;
 	pid_t pid = 0;
 	struct stat st;
-	int statret;
+	int statret, i;
+	VPNConfig *config;
 
-	char *conn = (char *)key;
-	VPNConfig *self = (VPNConfig *)value;
-
-	if (self->statefilename == NULL)
-		if ((self->statefilename = g_strdup_printf(statefilenamefmt, conn)) == NULL)
-			return;
-
-	if ((fp = g_fopen(self->statefilename, "r")) != NULL)
+	if (!applet->configs)
+		return;
+	for (i=0; i<applet->configs_count; i++)
 	{
-		while (fgets(buf, sizeof buf, fp))
-		{
-			if (strncmp(buf, "mgmtport=", 9) == 0)
-				port = strtol(buf + 9, NULL, 10);
-			else if (strncmp(buf, "pid=", 4) == 0)
-				pid = strtol(buf + 4, NULL, 10);
-		}
-		if (pid
-		 && port
-		 && (procdir = g_strdup_printf("/proc/%d", pid)) != NULL
-		 && (statret = stat(procdir, &st)) == 0)
-		{
-			self->sockaddr.sin_family      = AF_INET;
-			self->sockaddr.sin_addr.s_addr = INADDR_ANY;
-			self->sockaddr.sin_port        = htons(port);
-			self->retry                    = MAX_RETRY - 1;
-			if (vpn_config_try_connect(self) == 0)
-			{
-				set_menuitem_label(self->menuitem, _("Disconnect %s"), self->name);
-				vpn_applet_update_count_and_icon(self->applet);
-			}
-			self->state = RESTART;
-		}
-		if (procdir)
-		{
-			/* Clean up - if we had a /proc/<pid> dir but couldn't stat it,
-			   remove the dead stat file. */
-			if (statret)
-			{
-				unlink(self->statefilename);
-				g_free(self->statefilename);
-				self->statefilename = NULL;
-			}
-			g_free(procdir);
-		}
-		fclose(fp);
-	}
-}
+		config = &applet->configs[i];
 
-void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
-{
-	/* Check whether there's a gopenvpn.<conf>.mgmt file and try to re-connect
-	   to the OpenVPN management interface. */
-	g_hash_table_foreach(applet->configs_table, vpn_applet_reconnect_to_mgmt_each, NULL);
+		if (config->statefilename == NULL)
+			if ((config->statefilename = g_strdup_printf(statefilenamefmt, config->name)) == NULL)
+				return;
+
+		if ((fp = g_fopen(config->statefilename, "r")) != NULL)
+		{
+			while (fgets(buf, sizeof buf, fp))
+			{
+				if (strncmp(buf, "mgmtport=", 9) == 0)
+					port = strtol(buf + 9, NULL, 10);
+				else if (strncmp(buf, "pid=", 4) == 0)
+					pid = strtol(buf + 4, NULL, 10);
+			}
+			if (pid
+			 && port
+			 && (procdir = g_strdup_printf("/proc/%d", pid)) != NULL
+			 && (statret = stat(procdir, &st)) == 0)
+			{
+				config->sockaddr.sin_family      = AF_INET;
+				config->sockaddr.sin_addr.s_addr = INADDR_ANY;
+				config->sockaddr.sin_port        = htons(port);
+				config->retry                    = MAX_RETRY - 1;
+				if (vpn_config_try_connect(config) == 0)
+				{
+					set_menuitem_label(config->menuitem, _("Disconnect %s"), config->name);
+					vpn_applet_update_count_and_icon(config->applet);
+				}
+				config->state = RESTART;
+			}
+			if (procdir)
+			{
+				/* Clean up - if we had a /proc/<pid> dir but couldn't stat it,
+				   remove the dead stat file. */
+				if (statret)
+				{
+					unlink(config->statefilename);
+					g_free(config->statefilename);
+					config->statefilename = NULL;
+				}
+				g_free(procdir);
+			}
+			fclose(fp);
+		}
+	}
 }
 
 void vpn_applet_init_status_icon(VPNApplet *applet)
