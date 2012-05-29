@@ -1367,7 +1367,7 @@ void vpn_applet_details(GtkMenuItem *menuitem,
 								  applet);
 
 	glade_xml_signal_connect_data(applet->details_xml,
-								  "auto_connect",
+								  "autoConnect",
 								  G_CALLBACK(vpn_applet_auto_connect_button_cb),
 								  applet);
 
