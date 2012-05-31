@@ -13,4 +13,7 @@ TODO items for gopenvpn
 
 - Higher quality icons and animation for when connecting
 
--compile for archlinux?
+- Compile for archlinux?  There are certainly issues with the use
+  of autotools on some (especially older) distros.  We also need it
+  to run under Ubuntu Lucid (where it _does_ compile and run but may not
+  autoconf properly).
