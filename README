@@ -9,6 +9,19 @@ be started and stopped, and a dialog from which OpenVPN's logs can
 be viewed.  It can manage multiple simultaneous connections, and
 graphically indicates when you're connected to a VPN tunnel.
 
+onlight fork notes
+------------------
+
+The purpose of this fork is to add several features (on the "onlight" branch):
+
+1. Allow for gopenvpn to be killed (between Gnome sessions) without
+disconnecting the VPNs and then to attempt to reconnect with the various
+openvpn management interfaces upon restart (when starting a new Gnome
+session).  This capability has been completed.
+
+2. Allow for gopenvpn to be used as a pre-session "openvpn launcher" in order
+that the VPNs are available prior to the window manager.
+
 License
 -------
 
