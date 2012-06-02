@@ -48,19 +48,41 @@ The following packages are also prerequisites:
 
  * gedit (for editing configuration files)
 
-2. Build it
+2. On systems with older versions (< 0.18.1) of libgettext such as Ubuntu lucid,
+   autoreconf will fail.  Update the gettext infrastructure:
+
+   $ cd gopenvpn
+   $ gettextize
+
+   edit configure.ac and remove the extra "po/Makefile.in" in AC_CONFIG_FILES:
+
+	AC_CONFIG_FILES([pixmaps/Makefile po/Makefile.in
+			 po/Makefile.in
+			 polkit/Makefile
+			 src/Makefile
+			 Makefile])
+
+   so that it reads:
+
+	AC_CONFIG_FILES([pixmaps/Makefile
+			 po/Makefile.in
+			 polkit/Makefile
+			 src/Makefile
+			 Makefile])
+
+3. Build it
 
    $ cd gopenvpn
    $ autoreconf -vi
    $ ./configure
    $ make
 
-3. Install it
+4. Install it
 
 As root, run:
    # make install
 
-4. To run gopenvpn on login, add /usr/local/bin/gopenvpn to your GNOME
+5. To run gopenvpn on login, add /usr/local/bin/gopenvpn to your GNOME
 session's startup items.
 
 Configuration Files
