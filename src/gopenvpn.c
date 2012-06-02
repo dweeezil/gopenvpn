@@ -36,6 +36,7 @@
 #include <netinet/in.h>
 #include <paths.h>
 #include <ctype.h>
+#include <strings.h>
 
 #include <glib.h>
 #include <glib/gi18n.h>
@@ -57,10 +58,13 @@
 #endif
 
 /* Filename of a state file given a connection's name */
-static char statefilenamefmt[] = _PATH_VARTMP "gopenvpn.%s.state";
+#define STATEFILENAMEFMT _PATH_VARTMP "gopenvpn.%s.state"
 
 /* Filename of a pid file given a connection's name */
-static char pidfilenamefmt[] = _PATH_VARRUN "gopenvpn.%s.pid";
+#define PIDFILENAMEFMT _PATH_VARRUN "gopenvpn.%s.pid"
+
+/* Section name based on the connection name */
+#define CONNSECTIONFMT "conn_%s"
 
 /*
  * If GtkStatusIcon is available (Gtk+ 2.10 and later), use it.  Otherwise, use
@@ -98,18 +102,21 @@ typedef struct VPNApplet VPNApplet;
 typedef struct VPNConfig
 {
 	VPNApplet         *applet;
-	int                state;
-	int                retry;
-	GIOChannel        *channel;
 	char              *name;
 	char              *file;
 	GtkWidget         *menuitem;
-	GtkTextBuffer     *buffer;
-	struct sockaddr_in sockaddr;
 	gboolean           auto_connect;
 	gboolean           use_keyring;
-	char              *statefilename;
 	char              *pidfilename;
+
+	/* these are set per-connect instance and should be cleared between connections
+	   except for "buffer" */
+	GtkTextBuffer     *buffer;
+	GIOChannel        *channel;
+	int                state;
+	int                retry;
+	struct sockaddr_in sockaddr;
+	pid_t		   pid;
 }
 VPNConfig;
 
@@ -134,6 +141,7 @@ struct VPNApplet
 	gboolean       in_modal;
 	gboolean       no_toggle;
 	GKeyFile      *preferences;
+	GKeyFile      *state;
 	GHashTable    *configs_table;
 
 #ifdef USE_GTKSTATUSICON
@@ -157,6 +165,7 @@ gboolean vpn_applet_get_password(VPNApplet *applet,
 								 char **password);
 void vpn_applet_update_count_and_icon(VPNApplet *applet);
 void vpn_applet_update_preferences(VPNApplet *applet);
+void vpn_applet_update_state(VPNApplet *applet);
 void vpn_applet_update_details_dialog(VPNApplet *applet, int page_num);
 void vpn_applet_display_error(VPNApplet *applet, const char *format, ...);
 gboolean vpn_config_try_connect(gpointer user_data);
@@ -380,12 +389,9 @@ void vpn_config_stop(VPNConfig *self)
 
 	set_menuitem_label(self->menuitem, _("Connect %s"), self->name);
 
-	if (self->statefilename)
-	{
-		unlink(self->statefilename);
-		g_free(self->statefilename);
-		self->statefilename = NULL;
-	}
+	bzero(&self->sockaddr, sizeof self->sockaddr);
+	self->pid = 0;
+	vpn_applet_update_state(applet);
 	self->state = INACTIVE;
 	vpn_applet_update_count_and_icon(applet);
 }
@@ -396,7 +402,7 @@ int vpn_config_try_connect(gpointer user_data)
 	VPNConfig *self = (VPNConfig*)user_data;
 	VPNApplet *applet = (VPNApplet*)self->applet;
 	int s;
-	FILE *pidfp = NULL, *statefp = NULL; 
+	FILE *pidfp = NULL; 
 	char pidbuf[100];
 
 	/* Connect to the gopenvpn-server */
@@ -433,13 +439,11 @@ int vpn_config_try_connect(gpointer user_data)
 	/* Get the pid and write it into the state file */
 	if (self->pidfilename
 	 && (pidfp = g_fopen(self->pidfilename, "r")) != NULL
-	 && fgets(pidbuf, sizeof pidbuf, pidfp)
-	 && self->statefilename
-	 && (statefp = g_fopen(self->statefilename, "a")) != NULL)
+	 && fgets(pidbuf, sizeof pidbuf, pidfp))
 	{
 		if (isdigit(pidbuf[0]))
-			fprintf(statefp, "pid=%ld\n", strtol(pidbuf, NULL, 10));
-		fclose(statefp);
+			self->pid = (int)strtol(pidbuf, NULL, 10);
+		vpn_applet_update_state(applet);
 	}
 	if (pidfp)
 		fclose(pidfp);
@@ -466,7 +470,6 @@ void vpn_config_start(VPNConfig *self)
 	char *ovpn_args[] = {PKEXEC_BINARY_PATH, OPENVPN_BINARY_PATH, NULL, NULL, NULL, NULL, NULL, NULL,
 			     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
-	FILE *statefilefp;
 	int s;
 	pid_t pid;
 	socklen_t namelen;
@@ -504,14 +507,6 @@ void vpn_config_start(VPNConfig *self)
 	port = ntohs(self->sockaddr.sin_port);
 	close(s);
 
-	/* Write the port number into /var/tmp/gopenvpn.<conf>.state */
-	if ((self->statefilename = g_strdup_printf(statefilenamefmt, self->name)) != NULL
-	 && (statefilefp = g_fopen(self->statefilename, "w")) != NULL)
-	{
-		fprintf(statefilefp, "mgmtport=%d\n", port);
-		fclose(statefilefp);
-	}
-
 	ovpn_args[2]  = "--cd";
 	ovpn_args[3]  = g_strdup_printf("%s", CONFIG_PATH);
 	ovpn_args[4]  = "--daemon";
@@ -526,7 +521,7 @@ void vpn_config_start(VPNConfig *self)
 	ovpn_args[13] = g_strdup_printf("%s", self->file);
 
 	ovpn_args[14] = "--writepid";
-	self->pidfilename = ovpn_args[15] = g_strdup_printf(pidfilenamefmt, self->name);
+	self->pidfilename = ovpn_args[15] = g_strdup_printf(PIDFILENAMEFMT, self->name);
 
 	/* Start the openvpn subprocess */
 	pid = fork();
@@ -561,6 +556,7 @@ void vpn_config_start(VPNConfig *self)
 	g_timeout_add(1000, vpn_config_try_connect, self);
 }
 
+/* XXX - make sure all the "self" stuff is actually freed here */
 void vpn_config_free(VPNConfig *self)
 {
 	if (self->name)
@@ -625,8 +621,10 @@ void vpn_config_init(VPNConfig *self,
 	self->use_keyring  = TRUE;
 	self->buffer       = gtk_text_buffer_new(NULL);
 	self->name         = g_strdup(file);
-	self->statefilename = NULL;
 	self->pidfilename  = NULL;
+
+	self->pid          = 0;
+	bzero(&self->sockaddr, sizeof self->sockaddr);
 
 	slash = strrchr(file, '/');
 	self->name = g_strdup(slash ? slash+1 : file);
@@ -794,6 +792,7 @@ gboolean vpn_config_io_callback(GSource *source,
 		else if (!strcmp(state, "CONNECTED"))
 		{
 			self->state = CONNECTED;
+			vpn_applet_update_state(applet);
 			vpn_applet_update_count_and_icon(applet);
 		}
 	}
@@ -830,6 +829,7 @@ gboolean vpn_config_io_callback(GSource *source,
 		if (!strcmp(fields[1], "CONNECTED"))
 		{
 			self->state = CONNECTED;
+			vpn_applet_update_state(applet);
 			vpn_applet_update_count_and_icon(applet);
 		}
 	}
@@ -1512,65 +1512,38 @@ void vpn_applet_init_configs(VPNApplet *applet)
 
 void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 {
-	static FILE *fp = NULL;
-	char buf[100], *procdir = NULL;
-	unsigned short port = 0;
-	pid_t pid = 0;
+	char *procdir = NULL;
 	struct stat st;
-	int statret, i, tristate;
-	VPNConfig *config;
+	int i;
+	VPNConfig *conf;
+	int port;
 
 	if (!applet->configs)
 		return;
-	for (i=0; i<applet->configs_count; i++)
+	for (i=0, conf = applet->configs ; i<applet->configs_count; i++, conf++)
 	{
-		config = &applet->configs[i];
+		port = ntohs(conf->sockaddr.sin_port);
 
-		if (config->statefilename == NULL)
-			if ((config->statefilename = g_strdup_printf(statefilenamefmt, config->name)) == NULL)
-				return;
-
-		if ((fp = g_fopen(config->statefilename, "r")) != NULL)
+		if (conf->pid
+		 && port
+		 && (procdir = g_strdup_printf("/proc/%d", conf->pid)) != NULL
+		 && stat(procdir, &st) == 0)
 		{
-			while (fgets(buf, sizeof buf, fp))
+			conf->sockaddr.sin_family      = AF_INET;
+			conf->sockaddr.sin_addr.s_addr = INADDR_ANY;
+			conf->sockaddr.sin_port        = htons(port);
+			conf->retry                    = MAX_RETRY - 1;
+			if (vpn_config_try_connect(conf) == 0)
 			{
-				if (strncmp(buf, "mgmtport=", 9) == 0)
-					port = strtol(buf + 9, NULL, 10);
-				else if (strncmp(buf, "pid=", 4) == 0)
-					pid = strtol(buf + 4, NULL, 10);
+				set_menuitem_label(conf->menuitem, _("Disconnect %s"), conf->name);
+				vpn_applet_update_count_and_icon(conf->applet);
+				conf->state = RECONNECTING;
 			}
-			if (pid
-			 && port
-			 && (procdir = g_strdup_printf("/proc/%d", pid)) != NULL
-			 && (statret = stat(procdir, &st)) == 0)
-			{
-				config->sockaddr.sin_family      = AF_INET;
-				config->sockaddr.sin_addr.s_addr = INADDR_ANY;
-				config->sockaddr.sin_port        = htons(port);
-				config->retry                    = MAX_RETRY - 1;
-				if (vpn_config_try_connect(config) == 0)
-				{
-					set_menuitem_label(config->menuitem, _("Disconnect %s"), config->name);
-					vpn_applet_update_count_and_icon(config->applet);
-					config->state = RECONNECTING;
-				}
-			}
-			/* Clean up - if we had a /proc/<pid> dir but couldn't stat it,
-			   remove the dead stat file. */
-			if (procdir)
-			{
-				if (statret)
-				{
-					unlink(config->statefilename);
-					g_free(config->statefilename);
-					config->statefilename = NULL;
-				}
-				g_free(procdir);
-			}
-			fclose(fp);
 		}
-		if (config->state == INACTIVE && config->auto_connect)
-			vpn_config_start(config);
+		if (procdir)
+			g_free(procdir);
+		if (conf->state == INACTIVE && conf->auto_connect)
+			vpn_config_start(conf);
 	}
 }
 
@@ -1694,13 +1667,18 @@ char *get_preferences_path()
 {
 	return g_build_filename(getenv("HOME"), ".gopenvpn", NULL);
 }
+
+char *get_state_path()
+{
+	return g_build_filename(getenv("HOME"), ".gopenvpn.state", NULL);
+}
 		
 void vpn_applet_init_preferences(VPNApplet *applet)
 {
 	char *preferences_path = get_preferences_path();
-	char **names;
-	char *str;
+	char *str, *section;
 	int i;
+	VPNConfig *conf;
 
 	applet->preferences = g_key_file_new();
 	
@@ -1709,26 +1687,15 @@ void vpn_applet_init_preferences(VPNApplet *applet)
 							  0,
 							  NULL);
 
-	str = g_key_file_get_string(applet->preferences,
-								"Preferences",
-								"AutoConnect",
-								NULL);
-
-	if (str)
+	for (i=0, conf=applet->configs ; i<applet->configs_count; i++, conf++)
 	{
-		names = g_strsplit(str, ";", 0);
-
-		for (i=0; names[i]; i++)
-		{
-			VPNConfig *config = vpn_config_find(applet, names[i]);
-			if (config)
-				config->auto_connect = TRUE;
-		}
-		
-		g_strfreev(names);
-		g_free(str);
+		if ((section = g_strdup_printf(CONNSECTIONFMT, conf->name)) != NULL
+		 && g_key_file_get_boolean(applet->preferences, section, "AutoConnect", NULL))
+			conf->auto_connect = TRUE;
+		if (section)
+			g_free(section);
 	}
-
+	
 	str = g_key_file_get_string(applet->preferences,
 								"Preferences",
 								"CurrentConfiguration",
@@ -1745,38 +1712,56 @@ void vpn_applet_init_preferences(VPNApplet *applet)
 	g_free(preferences_path);
 }
 
+void vpn_applet_init_state(VPNApplet *applet)
+{
+	char *state_path = get_state_path();
+	char *section;
+	int i;
+	VPNConfig *conf;
+
+	applet->state = g_key_file_new();
+	
+	g_key_file_load_from_file(applet->preferences,
+							  state_path,
+							  0,
+							  NULL);
+
+	for (i=0, conf=applet->configs ; i<applet->configs_count; i++, conf++)
+	{
+		if ((section = g_strdup_printf(CONNSECTIONFMT, conf->name)) != NULL)
+		{
+			conf->sockaddr.sin_port = htons(g_key_file_get_integer(applet->preferences, section, "Port", NULL));
+			conf->pid = g_key_file_get_integer(applet->preferences, section, "Pid", NULL);
+		}
+		if (section)
+			g_free(section);
+	}
+	g_free(state_path);
+}
+
 void vpn_applet_update_preferences(VPNApplet *applet)
 {
-	int i;
 	VPNConfig *config;
-	char *data;
+	char *data, *section;
 	char *preferences_path = get_preferences_path();
+	int i;
 
-	GString *auto_connect = g_string_new("");
-
-	for (i=0; i<applet->configs_count; i++)
-	{
-		if (applet->configs[i].auto_connect)
-		{
-			if (auto_connect->len)
-				g_string_append_c(auto_connect, ';');
-			g_string_append(auto_connect, applet->configs[i].name);
-		}
-	}
-	
-	g_key_file_set_string(applet->preferences,
-						  "Preferences",
-						  "AutoConnect",
-						  auto_connect->str);
-
-	g_string_free(auto_connect, TRUE);
-	
 	config = vpn_config_get(applet, applet->last_details_page);
 	
 	g_key_file_set_string(applet->preferences,
 						  "Preferences",
 						  "CurrentConfiguration",
 						  config ? config->name : "");
+
+	for (i=0, config=applet->configs ; i<applet->configs_count; i++, config++)
+	{
+		if ((section = g_strdup_printf(CONNSECTIONFMT, config->name)) != NULL)
+		{
+			g_key_file_set_boolean(applet->preferences, section, "AutoConnect", config->auto_connect);
+		}
+		if (section)
+			g_free(section);
+	}
 
 	data = g_key_file_to_data(applet->preferences,
 							  NULL,
@@ -1794,6 +1779,40 @@ void vpn_applet_update_preferences(VPNApplet *applet)
 	g_free(preferences_path);
 }
 
+void vpn_applet_update_state(VPNApplet *applet)
+{
+	int i;
+	char *data, *section;
+	char *state_path = get_state_path();
+	VPNConfig *conf;
+
+	for (i=0, conf=applet->configs ; i<applet->configs_count; i++, conf++)
+	{
+		if ((section = g_strdup_printf(CONNSECTIONFMT, conf->name)) != NULL)
+		{
+			g_key_file_set_integer(applet->state, section, "Port", ntohs(conf->sockaddr.sin_port));
+			g_key_file_set_integer(applet->state, section, "Pid", conf->pid);
+		}
+		if (section)
+			g_free(section);
+	}
+	
+	data = g_key_file_to_data(applet->state,
+							  NULL,
+							  NULL);
+
+	if (data)
+	{
+		FILE *fp = g_fopen(state_path, "w");
+		fputs(data, fp);
+		fclose(fp);
+		
+		g_free(data);
+	}
+
+	g_free(state_path);
+}
+
 void vpn_applet_init_signals(VPNApplet *applet)
 {
 	signal(SIGTERM, signal_handler);
@@ -1808,6 +1827,7 @@ void vpn_applet_init(VPNApplet *applet)
 	vpn_applet_init_status_icon(applet);
 	vpn_applet_init_configs(applet);
 	vpn_applet_init_preferences(applet);
+	vpn_applet_init_state(applet);
 	vpn_applet_init_popup_menu(applet);
 	vpn_applet_reconnect_to_mgmt(applet);
 }
