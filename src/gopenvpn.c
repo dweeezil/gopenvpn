@@ -122,11 +122,6 @@ typedef struct VPNConfig
 	int                retry;
 	struct sockaddr_in sockaddr;
 	pid_t		   pid;
-
-	/* these are used in batch mode for authentication */
-	char              *pkpasswd;
-	char              *authuser;
-	char              *authpasswd;
 }
 VPNConfig;
 
@@ -466,6 +461,7 @@ int vpn_config_try_connect(gpointer user_data)
 
 	/* Add an I/O watch for the pipe */
 	self->channel = g_io_channel_unix_new(s);
+	g_io_channel_set_flags(self->channel, G_IO_FLAG_NONBLOCK, NULL);
 		
 	g_io_add_watch(self->channel, G_IO_IN|G_IO_HUP|G_IO_ERR,
 				   (GIOFunc)vpn_config_io_callback, self);
@@ -520,7 +516,7 @@ void vpn_config_start(VPNConfig *self)
 	if (self->state != INACTIVE)
 		return;
 
-	self->use_keyring = TRUE;
+	self->use_keyring = !batchmode;
 
 	/* Choose a port for the OpenVPN management port */
 	self->sockaddr.sin_family      = AF_INET;
@@ -650,7 +646,7 @@ void vpn_config_init(VPNConfig *self,
 	self->applet       = applet;
 	self->file         = g_strdup(file);
 	self->state        = INACTIVE;
-	self->use_keyring  = TRUE;
+	self->use_keyring  = !batchmode;
 	self->buffer       = gtk_text_buffer_new(NULL);
 	self->name         = g_strdup(file);
 
@@ -677,7 +673,7 @@ gboolean vpn_config_io_callback(GSource *source,
 	VPNConfig *self = (VPNConfig*)user_data;
 	VPNApplet *applet = self->applet;
 	char *line;
-	char **fields = NULL;
+	char **fields;
 	gsize len;
 	GIOStatus gstat;
 
@@ -695,6 +691,7 @@ gboolean vpn_config_io_callback(GSource *source,
 
 	for (;;)
 	{
+		fields = NULL;
 		gstat = g_io_channel_read_line(self->channel,
 								   &line,
 								   &len,
@@ -706,7 +703,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			return FALSE;
 		}
 
-		if (gstat == G_IO_STATUS_NORMAL && len == 0)
+		if (len == 0)
 			break;
 
 		g_strchomp(line);
@@ -717,33 +714,25 @@ gboolean vpn_config_io_callback(GSource *source,
 			GString *GSpassword;
 			gboolean got_keyring = FALSE;
 
-			if (batchmode)
+			if (self->use_keyring)
 			{
-				password = self->pkpasswd;
+				got_keyring = get_keyring(self->name,
+										  NULL,
+										  &password);
+				self->use_keyring = !got_keyring;
 			}
-			else
-			{
-				if (self->use_keyring)
-				{
-					got_keyring = get_keyring(self->name,
-											  NULL,
-											  &password);
-					self->use_keyring = !got_keyring;
-				}
 
-				if (!got_keyring)
-				{
-					if (!vpn_applet_get_password(applet,
-												 self->name,
-												 NULL,
-												 &password))
-						return FALSE;
-				}
+			if (!got_keyring)
+			{
+				if (!vpn_applet_get_password(applet,
+											 self->name,
+											 NULL,
+											 &password))
+					continue;
 			}
 
 			GSpassword = openvpn_mgmt_string_escape(password);
-			if (!batchmode)
-				g_free(password);
+			g_free(password);
 			
 			socket_printf(self->channel,
 						  "password \"Private Key\" \"%s\"\r\n",
@@ -758,39 +747,27 @@ gboolean vpn_config_io_callback(GSource *source,
 			GString *GSusername, *GSpassword;
 			gboolean got_keyring = FALSE;
 
-			if (batchmode)
+			if (self->use_keyring)
 			{
-				username = self->authuser;
-				password = self->authpasswd;
-				
+				got_keyring = get_keyring(self->name,
+										  &username,
+										  &password);
+				self->use_keyring = !got_keyring;
 			}
-			else
+			
+			if (!got_keyring)
 			{
-				if (self->use_keyring)
-				{
-					got_keyring = get_keyring(self->name,
-											  &username,
-											  &password);
-					self->use_keyring = !got_keyring;
-				}
-				
-				if (!got_keyring)
-				{
-					if (!vpn_applet_get_password(applet,
-												 self->name,
-												 &username,
-												 &password))
-						return FALSE;
-				}
+				if (!vpn_applet_get_password(applet,
+											 self->name,
+											 &username,
+											 &password))
+					continue;
 			}
 
 			GSusername = openvpn_mgmt_string_escape(username);
 			GSpassword = openvpn_mgmt_string_escape(password);
-			if (!batchmode)
-			{
-				g_free(username);
-				g_free(password);
-			}
+			g_free(username);
+			g_free(password);
 			
 			socket_printf(self->channel,
 						  "username \"Auth\" \"%s\"\r\n",
@@ -1162,13 +1139,15 @@ gboolean vpn_applet_get_password(VPNApplet *applet,
 	#ifdef USE_GTKSTATUSICON
 	/* Temporarily turn off blinking status icon while
 	 * in this dialog; it's distracting */
-	gtk_status_icon_set_blinking(applet->status_icon, FALSE);
+	if (!batchmode)
+		gtk_status_icon_set_blinking(applet->status_icon, FALSE);
 	#endif
 
 	response = vpn_applet_run_dialog(applet, GTK_DIALOG(dialog));
 
 	#ifdef USE_GTKSTATUSICON	
-	gtk_status_icon_set_blinking(applet->status_icon, TRUE);
+	if (!batchmode)
+		gtk_status_icon_set_blinking(applet->status_icon, TRUE);
 	#endif
 		
 	if (username)
@@ -1720,10 +1699,6 @@ void init_resource(VPNApplet *applet,
 void vpn_applet_init_batchmode(VPNApplet *applet)
 {
 	char *s;
-	gchar **fields;
-	char buf[200];
-	int len;
-	VPNConfig *config;
 	struct passwd *p;
 
 	/* Set the applet's uid and gid to the user & group that invoked sudo.
@@ -1740,38 +1715,6 @@ void vpn_applet_init_batchmode(VPNApplet *applet)
 		applet->gid = atoi(s);
 	else
 		applet->gid = 0;
-
-	/* In batch mode, read a series of credentials from stdin of the form:
-
-	        <conn>:<keytype>:<user>:<password>
-
-           where <conn> is the name of the connection, <keytype> is either the string "pk"
-	   for a private key or "auth" for a user/pass authentication, <user> is the username
-	   for "auth" and "<password>" is the password for both pk and auth.
-	 */
-	while (fgets(buf, sizeof buf, stdin))
-	{
-		len = strlen(buf);
-		if (len > 0)
-		{
-			if (buf[len - 1] == '\n')
-				buf[len - 1] = '\0';
-			fields = g_strsplit(buf, ":", 0);
-			if (g_strv_length(fields) == 4 && (config = vpn_config_find(applet, fields[0])) != NULL)
-			{
-				if (!strcmp(fields[1], "pk"))
-				{
-					config->pkpasswd = g_strdup(fields[3]);
-				}
-				else if (!strcmp(fields[1], "auth"))
-				{
-					config->authuser = g_strdup(fields[2]);
-					config->authpasswd = g_strdup(fields[3]);
-				}
-			}
-			g_strfreev(fields);
-		}
-        }
 }
 
 void vpn_applet_init_resources(VPNApplet *applet)
@@ -1780,6 +1723,8 @@ void vpn_applet_init_resources(VPNApplet *applet)
 				  &applet->glade_file,
 				  GLADE_DIR,
 				  GLADE_FILE);
+	if (batchmode)
+		return;
 	init_resource(applet,
 				  &applet->open_image,
 				  PIXMAPS_DIR,
@@ -1962,11 +1907,9 @@ void vpn_applet_init_signals(VPNApplet *applet)
 void vpn_applet_init(VPNApplet *applet)
 {
 	vpn_applet_init_signals(applet);
+	vpn_applet_init_resources(applet);
 	if (!batchmode)
-	{
-		vpn_applet_init_resources(applet);
 		vpn_applet_init_status_icon(applet);
-	}
 	vpn_applet_init_configs(applet);
 	if (batchmode)
 		vpn_applet_init_batchmode(applet);
