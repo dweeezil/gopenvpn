@@ -380,6 +380,22 @@ char** parse_openvpn_output(const char *string,
 	return fields;
 }
 
+gboolean all_auto_up(VPNApplet *applet)
+{
+	int i, wantup = 0, isup = 0;
+	VPNConfig *conf;
+	for (i=0, conf = applet->configs ; i<applet->configs_count; i++, conf++)
+	{
+		if (conf->auto_connect)
+		{
+			++wantup;
+			if (conf->state == CONNECTED)
+				++isup;
+		}
+	}
+	return wantup == isup;
+}
+
 /*
  * Main program
  */
@@ -824,12 +840,20 @@ gboolean vpn_config_io_callback(GSource *source,
 		else if (!strcmp(state, "CONNECTED"))
 		{
 			self->state = CONNECTED;
-			vpn_applet_update_state(applet);
-			vpn_applet_update_count_and_icon(applet);
+			if (batchmode)
+			{
+				if (all_auto_up(applet))
+					gtk_main_quit();
+			}
+			else
+			{
+				vpn_applet_update_state(applet);
+				vpn_applet_update_count_and_icon(applet);
+			}
 		}
 	}
 
-	else if ((fields = parse_openvpn_output(line,
+	else if (!batchmode && (fields = parse_openvpn_output(line,
 											">LOG:",
 											3)) != NULL)
 	{
@@ -861,8 +885,16 @@ gboolean vpn_config_io_callback(GSource *source,
 		if (!strcmp(fields[1], "CONNECTED"))
 		{
 			self->state = CONNECTED;
-			vpn_applet_update_state(applet);
-			vpn_applet_update_count_and_icon(applet);
+			if (batchmode)
+			{
+				if (all_auto_up(applet))
+					gtk_main_quit();
+			}
+			else
+			{
+				vpn_applet_update_state(applet);
+				vpn_applet_update_count_and_icon(applet);
+			}
 		}
 	}
 		
@@ -1870,6 +1902,8 @@ void vpn_applet_update_preferences(VPNApplet *applet)
 		
 		g_free(data);
 	}
+	if (batchmode)
+		chown(preferences_path, applet->uid, applet->gid);
 
 	g_free(preferences_path);
 }
@@ -1904,6 +1938,8 @@ void vpn_applet_update_state(VPNApplet *applet)
 		
 		g_free(data);
 	}
+	if (batchmode)
+		chown(state_path, applet->uid, applet->gid);
 
 	g_free(state_path);
 }
@@ -1947,7 +1983,8 @@ int main(int argc, char *argv[])
 	g_applet = vpn_applet_new();
 	vpn_applet_init(g_applet);
 	gtk_main();
-	vpn_applet_destroy(g_applet);
+	if (!batchmode)
+		vpn_applet_destroy(g_applet);
 
 	return 0;
 }
