@@ -678,6 +678,8 @@ gboolean vpn_config_io_callback(GSource *source,
 	VPNApplet *applet = self->applet;
 	char *line;
 	char **fields = NULL;
+	gsize len;
+	GIOStatus gstat;
 
 	/* We may have shut down the connection, but not yet fired
 	 * the glib IOWatch callback */
@@ -691,218 +693,224 @@ gboolean vpn_config_io_callback(GSource *source,
 		return FALSE;
 	}
 
-	if (g_io_channel_read_line(self->channel,
-							   &line,
-							   NULL,
-							   NULL,
-							   NULL) != G_IO_STATUS_NORMAL)
+	for (;;)
 	{
-		vpn_config_stop(self);
-		return FALSE;
-	}
-
-	g_strchomp(line);
-
-	if (!strcmp(line, ">PASSWORD:Need 'Private Key' password"))
-	{
-		char *password;
-		GString *GSpassword;
-		gboolean got_keyring = FALSE;
-
-		if (batchmode)
+		gstat = g_io_channel_read_line(self->channel,
+								   &line,
+								   &len,
+								   NULL,
+								   NULL);
+		if (gstat == G_IO_STATUS_EOF)
 		{
-			password = self->pkpasswd;
-		}
-		else
-		{
-			if (self->use_keyring)
-			{
-				got_keyring = get_keyring(self->name,
-										  NULL,
-										  &password);
-				self->use_keyring = !got_keyring;
-			}
-
-			if (!got_keyring)
-			{
-				if (!vpn_applet_get_password(applet,
-											 self->name,
-											 NULL,
-											 &password))
-					return FALSE;
-			}
+			vpn_config_stop(self);
+			return FALSE;
 		}
 
-		GSpassword = openvpn_mgmt_string_escape(password);
-		if (!batchmode)
-			g_free(password);
-		
-		socket_printf(self->channel,
-					  "password \"Private Key\" \"%s\"\r\n",
-					  GSpassword->str);
+		if (gstat == G_IO_STATUS_NORMAL && len == 0)
+			break;
 
-		g_string_free(GSpassword, TRUE);
-	}
+		g_strchomp(line);
 
-	else if (!strcmp(line, ">PASSWORD:Need 'Auth' username/password"))
-	{
-		char *username, *password;
-		GString *GSusername, *GSpassword;
-		gboolean got_keyring = FALSE;
+		if (!strcmp(line, ">PASSWORD:Need 'Private Key' password"))
+		{
+			char *password;
+			GString *GSpassword;
+			gboolean got_keyring = FALSE;
 
-		if (batchmode)
-		{
-			username = self->authuser;
-			password = self->authpasswd;
-			
-		}
-		else
-		{
-			if (self->use_keyring)
-			{
-				got_keyring = get_keyring(self->name,
-										  &username,
-										  &password);
-				self->use_keyring = !got_keyring;
-			}
-			
-			if (!got_keyring)
-			{
-				if (!vpn_applet_get_password(applet,
-											 self->name,
-											 &username,
-											 &password))
-					return FALSE;
-			}
-		}
-
-		GSusername = openvpn_mgmt_string_escape(username);
-		GSpassword = openvpn_mgmt_string_escape(password);
-		if (!batchmode)
-		{
-			g_free(username);
-			g_free(password);
-		}
-		
-		socket_printf(self->channel,
-					  "username \"Auth\" \"%s\"\r\n",
-					  GSusername->str);
-		
-		socket_printf(self->channel,
-					  "password \"Auth\" \"%s\"\r\n",
-					  GSpassword->str);
-
-		g_string_free(GSusername, TRUE);
-		g_string_free(GSpassword, TRUE);
-		
-	}
-
-	else if (starts_with(line, ">INFO:"))
-	{
-		if (self->state == RECONNECTING)
-		{
-			self->state = SENTSTATE;
-			vpn_applet_update_count_and_icon(applet);
-			socket_printf(self->channel, "state\r\n", NULL);
-		}
-		else
-		{
-			/* Tell OpenVPN to log in real time */
-			socket_printf(self->channel, "log on all\r\n", NULL);
-		
-			/* Turn on real-time state notifications */
-			socket_printf(self->channel, "state on\r\n", NULL);
-		
-			/* Tell OpenVPN to retry on bad passwords */
-			socket_printf(self->channel, "auth-retry interact\r\n", NULL);
-		
-			/* Let OpenVPN start its business */
-			socket_printf(self->channel, "hold release\r\n", NULL);
-		}
-	}
-
-	else if ((fields = parse_openvpn_output(line,
-											">STATE:",
-											4)) != NULL)
-	{
-		char *state = fields[1];
-		
-		if (!strcmp(state, "RECONNECTING"))
-		{
-			/* Change our state back to connecting */
-			self->state = CONNECTING;
-			
-			vpn_applet_update_count_and_icon(applet);
-			
-			/* Let OpenVPN restart its business */
-			socket_printf(self->channel, "hold release\r\n", NULL);
-		}
-		else if (!strcmp(state, "CONNECTED"))
-		{
-			self->state = CONNECTED;
 			if (batchmode)
 			{
-				if (all_auto_up(applet))
-					gtk_main_quit();
+				password = self->pkpasswd;
 			}
 			else
 			{
-				vpn_applet_update_state(applet);
-				vpn_applet_update_count_and_icon(applet);
-			}
-		}
-	}
+				if (self->use_keyring)
+				{
+					got_keyring = get_keyring(self->name,
+											  NULL,
+											  &password);
+					self->use_keyring = !got_keyring;
+				}
 
-	else if (!batchmode && (fields = parse_openvpn_output(line,
-											">LOG:",
-											3)) != NULL)
-	{
-		time_t timestamp;
-		char *message, *time_string, *line;
-		GtkTextIter iter;
-		
-		timestamp = atol(fields[0]);
-		message = fields[2];
-		
-		time_string = g_strdup(ctime(&timestamp));
-		g_strchomp(time_string);
-		
-		line = g_strdup_printf("%s: %s\r\n",
-							   time_string,
-							   message);
-		
-		gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(self->buffer),
-									 &iter);
-		
-		gtk_text_buffer_insert(GTK_TEXT_BUFFER(self->buffer),
-							   &iter,
-							   line,
-							   strlen(line));
-	}
-	else if (self->state == SENTSTATE)
-	{
-		fields = parse_openvpn_output(line, "", 5);
-		if (!strcmp(fields[1], "CONNECTED"))
+				if (!got_keyring)
+				{
+					if (!vpn_applet_get_password(applet,
+												 self->name,
+												 NULL,
+												 &password))
+						return FALSE;
+				}
+			}
+
+			GSpassword = openvpn_mgmt_string_escape(password);
+			if (!batchmode)
+				g_free(password);
+			
+			socket_printf(self->channel,
+						  "password \"Private Key\" \"%s\"\r\n",
+						  GSpassword->str);
+
+			g_string_free(GSpassword, TRUE);
+		}
+
+		else if (!strcmp(line, ">PASSWORD:Need 'Auth' username/password"))
 		{
-			self->state = CONNECTED;
+			char *username, *password;
+			GString *GSusername, *GSpassword;
+			gboolean got_keyring = FALSE;
+
 			if (batchmode)
 			{
-				if (all_auto_up(applet))
-					gtk_main_quit();
+				username = self->authuser;
+				password = self->authpasswd;
+				
 			}
 			else
 			{
-				vpn_applet_update_state(applet);
+				if (self->use_keyring)
+				{
+					got_keyring = get_keyring(self->name,
+											  &username,
+											  &password);
+					self->use_keyring = !got_keyring;
+				}
+				
+				if (!got_keyring)
+				{
+					if (!vpn_applet_get_password(applet,
+												 self->name,
+												 &username,
+												 &password))
+						return FALSE;
+				}
+			}
+
+			GSusername = openvpn_mgmt_string_escape(username);
+			GSpassword = openvpn_mgmt_string_escape(password);
+			if (!batchmode)
+			{
+				g_free(username);
+				g_free(password);
+			}
+			
+			socket_printf(self->channel,
+						  "username \"Auth\" \"%s\"\r\n",
+						  GSusername->str);
+			
+			socket_printf(self->channel,
+						  "password \"Auth\" \"%s\"\r\n",
+						  GSpassword->str);
+
+			g_string_free(GSusername, TRUE);
+			g_string_free(GSpassword, TRUE);
+			
+		}
+
+		else if (starts_with(line, ">INFO:"))
+		{
+			if (self->state == RECONNECTING)
+			{
+				self->state = SENTSTATE;
 				vpn_applet_update_count_and_icon(applet);
+				socket_printf(self->channel, "state\r\n", NULL);
+			}
+			else
+			{
+				/* Tell OpenVPN to log in real time */
+				socket_printf(self->channel, "log on all\r\n", NULL);
+			
+				/* Turn on real-time state notifications */
+				socket_printf(self->channel, "state on\r\n", NULL);
+			
+				/* Tell OpenVPN to retry on bad passwords */
+				socket_printf(self->channel, "auth-retry interact\r\n", NULL);
+			
+				/* Let OpenVPN start its business */
+				socket_printf(self->channel, "hold release\r\n", NULL);
 			}
 		}
-	}
-		
-	g_free(line);
 
-	if (fields)
-		g_strfreev(fields);
-	
+		else if ((fields = parse_openvpn_output(line,
+												">STATE:",
+												4)) != NULL)
+		{
+			char *state = fields[1];
+			
+			if (!strcmp(state, "RECONNECTING"))
+			{
+				/* Change our state back to connecting */
+				self->state = CONNECTING;
+				
+				vpn_applet_update_count_and_icon(applet);
+				
+				/* Let OpenVPN restart its business */
+				socket_printf(self->channel, "hold release\r\n", NULL);
+			}
+			else if (!strcmp(state, "CONNECTED"))
+			{
+				self->state = CONNECTED;
+				if (batchmode)
+				{
+					if (all_auto_up(applet))
+						gtk_main_quit();
+				}
+				else
+				{
+					vpn_applet_update_state(applet);
+					vpn_applet_update_count_and_icon(applet);
+				}
+			}
+		}
+
+		else if (!batchmode && (fields = parse_openvpn_output(line,
+												">LOG:",
+												3)) != NULL)
+		{
+			time_t timestamp;
+			char *message, *time_string, *line;
+			GtkTextIter iter;
+			
+			timestamp = atol(fields[0]);
+			message = fields[2];
+			
+			time_string = g_strdup(ctime(&timestamp));
+			g_strchomp(time_string);
+			
+			line = g_strdup_printf("%s: %s\r\n",
+								   time_string,
+								   message);
+			
+			gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(self->buffer),
+										 &iter);
+			
+			gtk_text_buffer_insert(GTK_TEXT_BUFFER(self->buffer),
+								   &iter,
+								   line,
+								   strlen(line));
+		}
+		else if (self->state == SENTSTATE)
+		{
+			fields = parse_openvpn_output(line, "", 5);
+			if (!strcmp(fields[1], "CONNECTED"))
+			{
+				self->state = CONNECTED;
+				if (batchmode)
+				{
+					if (all_auto_up(applet))
+						gtk_main_quit();
+				}
+				else
+				{
+					vpn_applet_update_state(applet);
+					vpn_applet_update_count_and_icon(applet);
+				}
+			}
+		}
+			
+		g_free(line);
+
+		if (fields)
+			g_strfreev(fields);
+	}
 	return TRUE;
 }
 
