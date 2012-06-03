@@ -546,7 +546,7 @@ void vpn_config_start(VPNConfig *self)
 	if (!pid)
 	{
 		/* Child process */
-		execve(PKEXEC_BINARY_PATH, batchmode ? ovpn_args + 1 : ovpn_args, NULL);
+		execve(batchmode ? OPENVPN_BINARY_PATH : PKEXEC_BINARY_PATH, batchmode ? ovpn_args + 1 : ovpn_args, NULL);
 		exit(-1);
 	}
 
