@@ -77,6 +77,8 @@ The following packages are also prerequisites:
    $ ./configure
    $ make
 
+   NOTE: autoreconf may require -f (force) if gettextize was run.
+
 4. Install it
 
 As root, run:
