@@ -37,6 +37,7 @@
 #include <paths.h>
 #include <ctype.h>
 #include <strings.h>
+#include <pwd.h>
 
 #include <glib.h>
 #include <glib/gi18n.h>
@@ -79,6 +80,10 @@
 #include "eggtrayicon.h"
 #endif
 
+/* batchmode - TRUE if this program is run from sudo
+ */
+gboolean batchmode = FALSE;
+
 /*
  * VPNConfig Section
  */
@@ -117,6 +122,11 @@ typedef struct VPNConfig
 	int                retry;
 	struct sockaddr_in sockaddr;
 	pid_t		   pid;
+
+	/* these are used in batch mode for authentication */
+	char              *pkpasswd;
+	char              *authuser;
+	char              *authpasswd;
 }
 VPNConfig;
 
@@ -153,6 +163,11 @@ struct VPNApplet
 	gboolean       icon_blinking;
 	gboolean       blink_on;
 #endif
+
+	/* these are used in batch mode */
+	char          *homedir;
+	uid_t          uid;
+	gid_t          gid;
 };
 
 /*
@@ -313,6 +328,9 @@ void set_menuitem_label(GtkWidget *menuitem,
 	GList *children;
 	GtkWidget *label;
 	char *text;
+
+	if (batchmode)
+		return;
 
 	g_return_if_fail(menuitem != NULL);
 	g_return_if_fail(format != NULL);
@@ -528,7 +546,7 @@ void vpn_config_start(VPNConfig *self)
 	if (!pid)
 	{
 		/* Child process */
-		execve(PKEXEC_BINARY_PATH, ovpn_args, NULL);
+		execve(PKEXEC_BINARY_PATH, batchmode ? ovpn_args + 1 : ovpn_args, NULL);
 		exit(-1);
 	}
 
@@ -612,19 +630,13 @@ void vpn_config_init(VPNConfig *self,
 	char *slash;
 	char *period;
 
+	bzero(self, sizeof *self);
 	self->applet       = applet;
 	self->file         = g_strdup(file);
 	self->state        = INACTIVE;
-	self->channel      = NULL;
-	self->retry        = 0;
-	self->auto_connect = FALSE;
 	self->use_keyring  = TRUE;
 	self->buffer       = gtk_text_buffer_new(NULL);
 	self->name         = g_strdup(file);
-	self->pidfilename  = NULL;
-
-	self->pid          = 0;
-	bzero(&self->sockaddr, sizeof self->sockaddr);
 
 	slash = strrchr(file, '/');
 	self->name = g_strdup(slash ? slash+1 : file);
@@ -857,6 +869,9 @@ void vpn_applet_display_error(VPNApplet *applet, const char *format, ...)
 	va_list ap;
 	GtkWidget *dialog;
 	char *text;
+
+	if (batchmode)
+		return;
 	
 	va_start(ap, format);
 	text = g_strdup_vprintf(format, ap);
@@ -1164,6 +1179,9 @@ void vpn_applet_update_count_and_icon(VPNApplet *applet)
 	int i;
 	int count = 0;
 	gboolean new_connecting = FALSE;
+
+	if (batchmode)
+		return;
 	
 	for (i=0; i<applet->configs_count; i++)
 	{
@@ -1639,6 +1657,63 @@ void init_resource(VPNApplet *applet,
 	}
 }
 
+void vpn_applet_init_batchmode(VPNApplet *applet)
+{
+	char *s;
+	gchar **fields;
+	char buf[200];
+	int len;
+	VPNConfig *config;
+	struct passwd *p;
+
+	/* Set the applet's uid and gid to the user & group that invoked sudo.
+	 */
+	if ((s  = getenv("SUDO_UID")) != NULL)
+	{
+		applet->uid = atoi(s);
+		if ((p = getpwuid(applet->uid)) != NULL)
+			applet->homedir = g_strdup(p->pw_dir);
+	}
+	else
+		applet->uid = 0;
+	if ((s  = getenv("SUDO_GID")) != NULL)
+		applet->gid = atoi(s);
+	else
+		applet->gid = 0;
+
+	/* In batch mode, read a series of credentials from stdin of the form:
+
+	        <conn>:<keytype>:<user>:<password>
+
+           where <conn> is the name of the connection, <keytype> is either the string "pk"
+	   for a private key or "auth" for a user/pass authentication, <user> is the username
+	   for "auth" and "<password>" is the password for both pk and auth.
+	 */
+	while (fgets(buf, sizeof buf, stdin))
+	{
+		len = strlen(buf);
+		if (len > 0)
+		{
+			if (buf[len - 1] == '\n')
+				buf[len - 1] = '\0';
+			fields = g_strsplit(buf, ":", 0);
+			if (g_strv_length(fields) == 4 && (config = vpn_config_find(applet, fields[0])) != NULL)
+			{
+				if (!strcmp(fields[1], "pk"))
+				{
+					config->pkpasswd = g_strdup(fields[3]);
+				}
+				else if (!strcmp(fields[1], "auth"))
+				{
+					config->authuser = g_strdup(fields[2]);
+					config->authpasswd = g_strdup(fields[3]);
+				}
+			}
+			g_strfreev(fields);
+		}
+        }
+}
+
 void vpn_applet_init_resources(VPNApplet *applet)
 {
 	init_resource(applet,
@@ -1663,19 +1738,19 @@ void vpn_applet_init_resources(VPNApplet *applet)
 				  BLINK_IMAGE);
 }
 
-char *get_preferences_path()
+char *get_preferences_path(VPNApplet *applet)
 {
-	return g_build_filename(getenv("HOME"), ".gopenvpn", NULL);
+	return g_build_filename(batchmode ? applet->homedir : getenv("HOME"), ".gopenvpn", NULL);
 }
 
-char *get_state_path()
+char *get_state_path(VPNApplet *applet)
 {
-	return g_build_filename(getenv("HOME"), ".gopenvpn.state", NULL);
+	return g_build_filename(batchmode ? applet->homedir : getenv("HOME"), ".gopenvpn.state", NULL);
 }
 		
 void vpn_applet_init_preferences(VPNApplet *applet)
 {
-	char *preferences_path = get_preferences_path();
+	char *preferences_path = get_preferences_path(applet);
 	char *str, *section;
 	int i;
 	VPNConfig *conf;
@@ -1714,7 +1789,7 @@ void vpn_applet_init_preferences(VPNApplet *applet)
 
 void vpn_applet_init_state(VPNApplet *applet)
 {
-	char *state_path = get_state_path();
+	char *state_path = get_state_path(applet);
 	char *section;
 	int i;
 	VPNConfig *conf;
@@ -1743,7 +1818,7 @@ void vpn_applet_update_preferences(VPNApplet *applet)
 {
 	VPNConfig *config;
 	char *data, *section;
-	char *preferences_path = get_preferences_path();
+	char *preferences_path = get_preferences_path(applet);
 	int i;
 
 	config = vpn_config_get(applet, applet->last_details_page);
@@ -1783,7 +1858,7 @@ void vpn_applet_update_state(VPNApplet *applet)
 {
 	int i;
 	char *data, *section;
-	char *state_path = get_state_path();
+	char *state_path = get_state_path(applet);
 	VPNConfig *conf;
 
 	for (i=0, conf=applet->configs ; i<applet->configs_count; i++, conf++)
@@ -1823,12 +1898,18 @@ void vpn_applet_init_signals(VPNApplet *applet)
 void vpn_applet_init(VPNApplet *applet)
 {
 	vpn_applet_init_signals(applet);
-	vpn_applet_init_resources(applet);
-	vpn_applet_init_status_icon(applet);
+	if (!batchmode)
+	{
+		vpn_applet_init_resources(applet);
+		vpn_applet_init_status_icon(applet);
+	}
 	vpn_applet_init_configs(applet);
+	if (batchmode)
+		vpn_applet_init_batchmode(applet);
 	vpn_applet_init_preferences(applet);
 	vpn_applet_init_state(applet);
-	vpn_applet_init_popup_menu(applet);
+	if (!batchmode)
+		vpn_applet_init_popup_menu(applet);
 	vpn_applet_reconnect_to_mgmt(applet);
 }
 
@@ -1838,16 +1919,14 @@ int main(int argc, char *argv[])
 	bindtextdomain(PACKAGE, LOCALEDIR);
 	bind_textdomain_codeset(PACKAGE, "UTF-8");
 	textdomain(PACKAGE);
-	
-	gtk_init(&argc, &argv);
-	glade_init();
 
+	if (getenv("SUDO_COMMAND"))
+		batchmode = TRUE;
+
+	gtk_init_check(&argc, &argv);
 	g_applet = vpn_applet_new();
-
 	vpn_applet_init(g_applet);
-	
 	gtk_main();
-
 	vpn_applet_destroy(g_applet);
 
 	return 0;
