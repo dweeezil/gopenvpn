@@ -693,25 +693,33 @@ gboolean vpn_config_io_callback(GSource *source,
 		GString *GSpassword;
 		gboolean got_keyring = FALSE;
 
-		if (self->use_keyring)
+		if (batchmode)
 		{
-			got_keyring = get_keyring(self->name,
-									  NULL,
-									  &password);
-			self->use_keyring = !got_keyring;
+			password = self->pkpasswd;
 		}
-
-		if (!got_keyring)
+		else
 		{
-			if (!vpn_applet_get_password(applet,
-										 self->name,
-										 NULL,
-										 &password))
-				return FALSE;
+			if (self->use_keyring)
+			{
+				got_keyring = get_keyring(self->name,
+										  NULL,
+										  &password);
+				self->use_keyring = !got_keyring;
+			}
+
+			if (!got_keyring)
+			{
+				if (!vpn_applet_get_password(applet,
+											 self->name,
+											 NULL,
+											 &password))
+					return FALSE;
+			}
 		}
 
 		GSpassword = openvpn_mgmt_string_escape(password);
-		g_free(password);
+		if (!batchmode)
+			g_free(password);
 		
 		socket_printf(self->channel,
 					  "password \"Private Key\" \"%s\"\r\n",
@@ -726,27 +734,39 @@ gboolean vpn_config_io_callback(GSource *source,
 		GString *GSusername, *GSpassword;
 		gboolean got_keyring = FALSE;
 
-		if (self->use_keyring)
+		if (batchmode)
 		{
-			got_keyring = get_keyring(self->name,
-									  &username,
-									  &password);
-			self->use_keyring = !got_keyring;
+			username = self->authuser;
+			password = self->authpasswd;
+			
 		}
-		
-		if (!got_keyring)
+		else
 		{
-			if (!vpn_applet_get_password(applet,
-										 self->name,
-										 &username,
-										 &password))
-				return FALSE;
+			if (self->use_keyring)
+			{
+				got_keyring = get_keyring(self->name,
+										  &username,
+										  &password);
+				self->use_keyring = !got_keyring;
+			}
+			
+			if (!got_keyring)
+			{
+				if (!vpn_applet_get_password(applet,
+											 self->name,
+											 &username,
+											 &password))
+					return FALSE;
+			}
 		}
 
 		GSusername = openvpn_mgmt_string_escape(username);
-		g_free(username);
 		GSpassword = openvpn_mgmt_string_escape(password);
-		g_free(password);
+		if (!batchmode)
+		{
+			g_free(username);
+			g_free(password);
+		}
 		
 		socket_printf(self->channel,
 					  "username \"Auth\" \"%s\"\r\n",
