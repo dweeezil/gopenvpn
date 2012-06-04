@@ -1608,17 +1608,18 @@ void vpn_applet_init_configs(VPNApplet *applet)
 
 void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 {
-	char *procdir = NULL;
 	struct stat st;
 	int i;
 	VPNConfig *conf;
 	int port;
+	char *procdir;
 
 	if (!applet->configs)
 		return;
 	for (i=0, conf = applet->configs ; i<applet->configs_count; i++, conf++)
 	{
 		port = ntohs(conf->sockaddr.sin_port);
+		procdir = NULL;
 
 		if (conf->pid
 		 && port
