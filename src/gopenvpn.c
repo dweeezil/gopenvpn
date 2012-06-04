@@ -731,6 +731,9 @@ gboolean vpn_config_io_callback(GSource *source,
 					continue;
 			}
 
+			if (batchmode && (!strcmp(password, "") || password == NULL))
+				gtk_main_quit();
+
 			GSpassword = openvpn_mgmt_string_escape(password);
 			g_free(password);
 			
@@ -836,6 +839,13 @@ gboolean vpn_config_io_callback(GSource *source,
 					vpn_applet_update_count_and_icon(applet);
 				}
 			}
+			else if (!strcmp(state, "EXITING") && self->state != RECONNECTING)
+			{
+				if (batchmode)
+					gtk_main_quit();
+				self->state = INACTIVE;
+				break;
+			}
 		}
 
 		else if (!batchmode && (fields = parse_openvpn_output(line,
@@ -864,6 +874,8 @@ gboolean vpn_config_io_callback(GSource *source,
 								   line,
 								   strlen(line));
 		}
+				if (batchmode)
+					gtk_main_quit();
 		else if (self->state == SENTSTATE)
 		{
 			fields = parse_openvpn_output(line, "", 5);
@@ -1155,7 +1167,7 @@ gboolean vpn_applet_get_password(VPNApplet *applet,
 
 	*password = g_strdup(gtk_entry_get_text(GTK_ENTRY(password_entry)));
 			
-	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(remember_password)))
+	if (!batchmode && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(remember_password)))
 	{
 		set_keyring(name,
 					username ? *username : NULL,
