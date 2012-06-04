@@ -375,7 +375,7 @@ char** parse_openvpn_output(const char *string,
 	return fields;
 }
 
-gboolean all_auto_up(VPNApplet *applet)
+void all_auto_up(VPNApplet *applet, gboolean early)
 {
 	int i, wantup = 0, isup = 0;
 	VPNConfig *conf;
@@ -388,7 +388,12 @@ gboolean all_auto_up(VPNApplet *applet)
 				++isup;
 		}
 	}
-	return wantup == isup;
+	if (wantup == isup)
+	{
+		if (early)
+			exit(0);
+		gtk_main_quit();
+	}
 }
 
 /*
@@ -829,10 +834,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			{
 				self->state = CONNECTED;
 				if (batchmode)
-				{
-					if (all_auto_up(applet))
-						gtk_main_quit();
-				}
+					all_auto_up(applet, FALSE);
 				else
 				{
 					vpn_applet_update_state(applet);
@@ -841,6 +843,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			}
 			else if (!strcmp(state, "EXITING") && self->state != RECONNECTING)
 			{
+fprintf("vpn_config_io_callback: batchmode=%d, state=%d, statestr=%s\n", batchmode, self->state, state);
 				if (batchmode)
 					gtk_main_quit();
 				self->state = INACTIVE;
@@ -874,8 +877,6 @@ gboolean vpn_config_io_callback(GSource *source,
 								   line,
 								   strlen(line));
 		}
-				if (batchmode)
-					gtk_main_quit();
 		else if (self->state == SENTSTATE)
 		{
 			fields = parse_openvpn_output(line, "", 5);
@@ -883,10 +884,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			{
 				self->state = CONNECTED;
 				if (batchmode)
-				{
-					if (all_auto_up(applet))
-						gtk_main_quit();
-				}
+					all_auto_up(applet, FALSE);
 				else
 				{
 					vpn_applet_update_state(applet);
@@ -1926,6 +1924,8 @@ void vpn_applet_init(VPNApplet *applet)
 	if (batchmode)
 		vpn_applet_init_batchmode(applet);
 	vpn_applet_init_preferences(applet);
+	if (batchmode)
+		all_auto_up(applet, TRUE);
 	vpn_applet_init_state(applet);
 	if (!batchmode)
 		vpn_applet_init_popup_menu(applet);
