@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <glob.h>
+#include <time.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -80,10 +81,6 @@
 #include "eggtrayicon.h"
 #endif
 
-/* batchmode - TRUE if this program is run from sudo
- */
-gboolean batchmode = FALSE;
-
 /*
  * VPNConfig Section
  */
@@ -122,6 +119,7 @@ typedef struct VPNConfig
 	int                retry;
 	struct sockaddr_in sockaddr;
 	pid_t		   pid;
+	time_t		   connecting_start_time;
 }
 VPNConfig;
 
@@ -148,6 +146,7 @@ struct VPNApplet
 	GKeyFile      *preferences;
 	GKeyFile      *state;
 	GHashTable    *configs_table;
+	gboolean       batchmode;
 
 #ifdef USE_GTKSTATUSICON
 	GtkStatusIcon *status_icon;
@@ -179,6 +178,7 @@ void vpn_applet_update_state(VPNApplet *applet);
 void vpn_applet_update_details_dialog(VPNApplet *applet, int page_num);
 void vpn_applet_display_error(VPNApplet *applet, const char *format, ...);
 gboolean vpn_config_try_connect(gpointer user_data);
+gboolean vpn_connect_monitor(gpointer user_data);
 gboolean vpn_config_io_callback(GSource *source,
 								GIOCondition condition,
 								gpointer user_data);
@@ -324,9 +324,6 @@ void set_menuitem_label(GtkWidget *menuitem,
 	GtkWidget *label;
 	char *text;
 
-	if (batchmode)
-		return;
-
 	g_return_if_fail(menuitem != NULL);
 	g_return_if_fail(format != NULL);
 	g_return_if_fail(GTK_IS_CONTAINER(menuitem));
@@ -418,7 +415,7 @@ void vpn_config_stop(VPNConfig *self)
 
 	g_source_remove_by_user_data(self);
 
-	if (!batchmode)
+	if (!applet->batchmode)
 	{
 		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
 									   FALSE);
@@ -433,6 +430,22 @@ void vpn_config_stop(VPNConfig *self)
 	vpn_applet_update_count_and_icon(applet);
 }
 
+
+int vpn_connect_monitor(gpointer user_data)
+{
+	VPNConfig *self = (VPNConfig*)user_data;
+	VPNApplet *applet = (VPNApplet*)self->applet;
+
+	if (self->state == CONNECTED)
+		return 0;
+
+	if (time(NULL) - self->connecting_start_time < 60)
+		return 1;
+	vpn_config_stop(self);
+	self->auto_connect = FALSE;
+	all_auto_up(applet, FALSE);
+	return 0;
+}
 
 int vpn_config_try_connect(gpointer user_data)
 {
@@ -514,19 +527,19 @@ void vpn_config_start(VPNConfig *self)
 	int status, port;
 
 	/* Check the popup menu item */
-	if (!batchmode)
+	if (!applet->batchmode)
 		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
 									   TRUE);
 	
 	/* Clear the logs */
-	if (!batchmode)
+	if (!applet->batchmode)
 		vpn_config_clear_log(self);
 
 	/* Do nothing if already connected */
 	if (self->state != INACTIVE)
 		return;
 
-	self->use_keyring = !batchmode;
+	self->use_keyring = !applet->batchmode;
 
 	/* Choose a port for the OpenVPN management port */
 	self->sockaddr.sin_family      = AF_INET;
@@ -538,7 +551,7 @@ void vpn_config_start(VPNConfig *self)
 	if (bind(s, (const struct sockaddr *)&self->sockaddr, sizeof(self->sockaddr)) ||
 		getsockname(s, (struct sockaddr *)&self->sockaddr, &namelen))
 	{
-		if (!batchmode)
+		if (!applet->batchmode)
 		{
 			vpn_applet_display_error(applet, _("Could not find an open TCP port for OpenVPN's management interface"));
 			gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
@@ -571,7 +584,7 @@ void vpn_config_start(VPNConfig *self)
 	if (!pid)
 	{
 		/* Child process */
-		execve(batchmode ? OPENVPN_BINARY_PATH : PKEXEC_BINARY_PATH, batchmode ? ovpn_args + 1 : ovpn_args, NULL);
+		execve(applet->batchmode ? OPENVPN_BINARY_PATH : PKEXEC_BINARY_PATH, applet->batchmode ? ovpn_args + 1 : ovpn_args, NULL);
 		exit(-1);
 	}
 
@@ -588,15 +601,21 @@ void vpn_config_start(VPNConfig *self)
 	}
 	
 	/* Change the menu item */
-	set_menuitem_label(self->menuitem, _("Disconnect %s"), self->name);
+	if (!applet->batchmode)
+		set_menuitem_label(self->menuitem, _("Disconnect %s"), self->name);
 
 	self->state = CONNECTING;
+	self->connecting_start_time = time(NULL);
 	vpn_applet_update_count_and_icon(applet);
 
 	/* The OpenVPN management port may take a little while to come up.
 	   Sleep a few seconds and give it a few tries. */
 	self->retry = 0;
 	g_timeout_add(1000, vpn_config_try_connect, self);
+
+	/* In batch mode, monitor the connecting process */
+	if (applet->batchmode)
+		g_timeout_add(1000, vpn_connect_monitor, self);
 }
 
 /* XXX - make sure all the "self" stuff is actually freed here */
@@ -659,8 +678,8 @@ void vpn_config_init(VPNConfig *self,
 	self->applet       = applet;
 	self->file         = g_strdup(file);
 	self->state        = INACTIVE;
-	self->use_keyring  = !batchmode;
-	if (!batchmode)
+	self->use_keyring  = !applet->batchmode;
+	if (!applet->batchmode)
 		self->buffer       = gtk_text_buffer_new(NULL);
 	self->name         = g_strdup(file);
 
@@ -671,7 +690,7 @@ void vpn_config_init(VPNConfig *self,
 	if (period)
 		*period = 0;
 	
-	if (!batchmode)
+	if (!applet->batchmode)
 	{
 		self->menuitem = gtk_check_menu_item_new_with_label("");
 
@@ -748,7 +767,7 @@ gboolean vpn_config_io_callback(GSource *source,
 					continue;
 			}
 
-			if (batchmode && (!strcmp(password, "") || password == NULL))
+			if (applet->batchmode && (!strcmp(password, "") || password == NULL))
 				gtk_main_quit();
 
 			GSpassword = openvpn_mgmt_string_escape(password);
@@ -836,6 +855,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			{
 				/* Change our state back to connecting */
 				self->state = CONNECTING;
+				self->connecting_start_time = time(NULL);
 				
 				vpn_applet_update_count_and_icon(applet);
 				
@@ -845,7 +865,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			else if (!strcmp(state, "CONNECTED"))
 			{
 				self->state = CONNECTED;
-				if (batchmode)
+				if (applet->batchmode)
 					all_auto_up(applet, FALSE);
 				else
 				{
@@ -855,15 +875,14 @@ gboolean vpn_config_io_callback(GSource *source,
 			}
 			else if (!strcmp(state, "EXITING") && self->state != RECONNECTING)
 			{
-fprintf("vpn_config_io_callback: batchmode=%d, state=%d, statestr=%s\n", batchmode, self->state, state);
-				if (batchmode)
+				if (applet->batchmode)
 					gtk_main_quit();
 				self->state = INACTIVE;
 				break;
 			}
 		}
 
-		else if (!batchmode && (fields = parse_openvpn_output(line,
+		else if (!applet->batchmode && (fields = parse_openvpn_output(line,
 												">LOG:",
 												3)) != NULL)
 		{
@@ -895,7 +914,7 @@ fprintf("vpn_config_io_callback: batchmode=%d, state=%d, statestr=%s\n", batchmo
 			if (!strcmp(fields[1], "CONNECTED"))
 			{
 				self->state = CONNECTED;
-				if (batchmode)
+				if (applet->batchmode)
 					all_auto_up(applet, FALSE);
 				else
 				{
@@ -929,7 +948,7 @@ void vpn_applet_display_error(VPNApplet *applet, const char *format, ...)
 	GtkWidget *dialog;
 	char *text;
 
-	if (batchmode)
+	if (applet->batchmode)
 		return;
 	
 	va_start(ap, format);
@@ -1161,14 +1180,14 @@ gboolean vpn_applet_get_password(VPNApplet *applet,
 	#ifdef USE_GTKSTATUSICON
 	/* Temporarily turn off blinking status icon while
 	 * in this dialog; it's distracting */
-	if (!batchmode)
+	if (!applet->batchmode)
 		gtk_status_icon_set_blinking(applet->status_icon, FALSE);
 	#endif
 
 	response = vpn_applet_run_dialog(applet, GTK_DIALOG(dialog));
 
 	#ifdef USE_GTKSTATUSICON	
-	if (!batchmode)
+	if (!applet->batchmode)
 		gtk_status_icon_set_blinking(applet->status_icon, TRUE);
 	#endif
 		
@@ -1177,7 +1196,7 @@ gboolean vpn_applet_get_password(VPNApplet *applet,
 
 	*password = g_strdup(gtk_entry_get_text(GTK_ENTRY(password_entry)));
 			
-	if (!batchmode && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(remember_password)))
+	if (!applet->batchmode && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(remember_password)))
 	{
 		set_keyring(name,
 					username ? *username : NULL,
@@ -1240,20 +1259,21 @@ void vpn_applet_update_count_and_icon(VPNApplet *applet)
 	int i;
 	int count = 0;
 	gboolean new_connecting = FALSE;
+	VPNConfig *config;
 
-	if (batchmode)
+	if (applet->batchmode)
 		return;
 	
-	for (i=0; i<applet->configs_count; i++)
+	for (i=0, config=applet->configs ; i<applet->configs_count; i++, config++)
 	{
-		VPNConfig *config = &applet->configs[i];
 		if (config->state == CONNECTED)
 			count++;
 		else if (config->state == CONNECTING || config->state == RECONNECTING || config->state == SENTSTATE)
 			new_connecting = TRUE;
 	}
 
-	set_menuitem_label(applet->count_item, _("OpenVPN: %d connections active"), count);
+	if (!applet->batchmode)
+		set_menuitem_label(applet->count_item, _("OpenVPN: %d connections active"), count);
 
 	if (new_connecting)
 	{
@@ -1418,6 +1438,7 @@ void vpn_applet_details(GtkMenuItem *menuitem,
 	GtkWidget *dialog;
 	GtkWidget *notebook;
 	int i, page_num;
+	VPNConfig *config;
 
 	applet->details_xml = glade_xml_new(applet->glade_file,
 										"details_dialog",
@@ -1427,12 +1448,11 @@ void vpn_applet_details(GtkMenuItem *menuitem,
 	
 	notebook = glade_xml_get_widget(applet->details_xml, "logsNotebook");
 
-	for (i=0; i<applet->configs_count; i++)
+	for (i=0, config=applet->configs; i<applet->configs_count; i++, config++)
 	{
 		GtkWidget *window;
 		GtkWidget *label;
 		
-		VPNConfig* config = &applet->configs[i];
 		window = vpn_applet_create_text(config->buffer);
 		label = gtk_label_new(config->name);
 		gtk_notebook_append_page(GTK_NOTEBOOK(notebook),
@@ -1509,6 +1529,7 @@ void vpn_applet_init_popup_menu(VPNApplet *applet)
 {
 	int i;
 	GtkWidget *details_item, *quit_item;
+	VPNConfig *config;
 	
 	applet->menu = gtk_menu_new();
 	
@@ -1518,12 +1539,9 @@ void vpn_applet_init_popup_menu(VPNApplet *applet)
 	gtk_menu_shell_append(GTK_MENU_SHELL(applet->menu),
 						  gtk_separator_menu_item_new());
 
-	for (i=0; i<applet->configs_count; i++)
-	{
-		VPNConfig *config = &applet->configs[i];
+	for (i=0, config=applet->configs; i<applet->configs_count; i++, config++)
 		gtk_menu_shell_append(GTK_MENU_SHELL(applet->menu),
 							  config->menuitem);
-	}
 
 	gtk_menu_shell_append(GTK_MENU_SHELL(applet->menu),
 						  gtk_separator_menu_item_new());	
@@ -1548,6 +1566,7 @@ void vpn_applet_init_configs(VPNApplet *applet)
 {
 	glob_t gl;
 	int i;
+	VPNConfig *config;
 	
 	glob("/etc/openvpn/*.conf", 0, NULL, &gl);
 	glob("/etc/openvpn/*.ovpn", GLOB_APPEND, NULL, &gl);	
@@ -1556,22 +1575,19 @@ void vpn_applet_init_configs(VPNApplet *applet)
 	
 	applet->configs = g_new(VPNConfig, applet->configs_count);
 
-	for (i=0; i<applet->configs_count; i++)
-	{
-		VPNConfig *config = &applet->configs[i];
+	for (i=0, config=applet->configs; i<applet->configs_count; i++, config++)
 		vpn_config_init(config,
 						applet,
 						gl.gl_pathv[i]);
-	}
 
 	globfree(&gl);
 
-	if (!batchmode && !applet->configs_count)
+	if (!applet->batchmode && !applet->configs_count)
 	{
 		vpn_applet_display_error(applet, _("No OpenVPN configuration files were found in %s"), CONFIG_PATH);
 	}
 
-	if (!batchmode && !g_file_test(OPENVPN_BINARY_PATH, G_FILE_TEST_IS_REGULAR))
+	if (!applet->batchmode && !g_file_test(OPENVPN_BINARY_PATH, G_FILE_TEST_IS_REGULAR))
 	{
 		vpn_applet_display_error(applet, _("Could not find openvpn binary at %s.  Make sure OpenVPN is installed."), OPENVPN_BINARY_PATH);
 	}
@@ -1580,11 +1596,11 @@ void vpn_applet_init_configs(VPNApplet *applet)
 	   by name */
 	applet->configs_table = g_hash_table_new(g_str_hash,
 											 g_str_equal);
-	for (i=0; i<applet->configs_count; i++)
+	for (i=0, config=applet->configs; i<applet->configs_count; i++, config++)
 	{
 		g_hash_table_insert(applet->configs_table,
-							applet->configs[i].name,
-							&applet->configs[i]);
+							config->name,
+							config);
 	}
 	
 }
@@ -1614,7 +1630,7 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 			conf->retry                    = MAX_RETRY - 1;
 			if (vpn_config_try_connect(conf) == 0)
 			{
-				if (!batchmode)
+				if (!applet->batchmode)
 				{
 					set_menuitem_label(conf->menuitem, _("Disconnect %s"), conf->name);
 					vpn_applet_update_count_and_icon(conf->applet);
@@ -1663,19 +1679,19 @@ void vpn_applet_init_status_icon(VPNApplet *applet)
 void vpn_applet_destroy(VPNApplet *applet)
 {
 	int i;
+	VPNConfig *config;
 
 	if (applet->configs)
 	{
-		for (i=0; i<applet->configs_count; i++)
+		for (i=0, config=applet->configs; i<applet->configs_count; i++, config++)
 		{
-			VPNConfig *config = &applet->configs[i];
 			vpn_config_stop(config);
 			vpn_config_free(config);
 		}
 		g_free(applet->configs);
 	}
 
-	if (batchmode)
+	if (applet->batchmode)
 		return;
 
 	#ifdef USE_GTKSTATUSICON
@@ -1751,7 +1767,7 @@ void vpn_applet_init_resources(VPNApplet *applet)
 				  &applet->glade_file,
 				  GLADE_DIR,
 				  GLADE_FILE);
-	if (batchmode)
+	if (applet->batchmode)
 		return;
 	init_resource(applet,
 				  &applet->open_image,
@@ -1773,12 +1789,12 @@ void vpn_applet_init_resources(VPNApplet *applet)
 
 char *get_preferences_path(VPNApplet *applet)
 {
-	return g_build_filename(batchmode ? applet->homedir : getenv("HOME"), ".gopenvpn", NULL);
+	return g_build_filename(applet->batchmode ? applet->homedir : getenv("HOME"), ".gopenvpn", NULL);
 }
 
 char *get_state_path(VPNApplet *applet)
 {
-	return g_build_filename(batchmode ? applet->homedir : getenv("HOME"), ".gopenvpn.state", NULL);
+	return g_build_filename(applet->batchmode ? applet->homedir : getenv("HOME"), ".gopenvpn.state", NULL);
 }
 		
 void vpn_applet_init_preferences(VPNApplet *applet)
@@ -1883,7 +1899,7 @@ void vpn_applet_update_preferences(VPNApplet *applet)
 		
 		g_free(data);
 	}
-	if (batchmode)
+	if (applet->batchmode)
 		chown(preferences_path, applet->uid, applet->gid);
 
 	g_free(preferences_path);
@@ -1919,7 +1935,7 @@ void vpn_applet_update_state(VPNApplet *applet)
 		
 		g_free(data);
 	}
-	if (batchmode)
+	if (applet->batchmode)
 		chown(state_path, applet->uid, applet->gid);
 
 	g_free(state_path);
@@ -1934,18 +1950,21 @@ void vpn_applet_init_signals(VPNApplet *applet)
 
 void vpn_applet_init(VPNApplet *applet)
 {
+	if (getenv("SUDO_COMMAND"))
+		applet->batchmode = TRUE;
+
 	vpn_applet_init_signals(applet);
 	vpn_applet_init_resources(applet);
-	if (!batchmode)
+	if (!applet->batchmode)
 		vpn_applet_init_status_icon(applet);
 	vpn_applet_init_configs(applet);
-	if (batchmode)
+	if (applet->batchmode)
 		vpn_applet_init_batchmode(applet);
 	vpn_applet_init_preferences(applet);
-	if (batchmode)
+	if (applet->batchmode)
 		all_auto_up(applet, TRUE);
 	vpn_applet_init_state(applet);
-	if (!batchmode)
+	if (!applet->batchmode)
 		vpn_applet_init_popup_menu(applet);
 	vpn_applet_reconnect_to_mgmt(applet);
 }
@@ -1957,14 +1976,11 @@ int main(int argc, char *argv[])
 	bind_textdomain_codeset(PACKAGE, "UTF-8");
 	textdomain(PACKAGE);
 
-	if (getenv("SUDO_COMMAND"))
-		batchmode = TRUE;
-
 	gtk_init_check(&argc, &argv);
 	g_applet = vpn_applet_new();
 	vpn_applet_init(g_applet);
 	gtk_main();
-	if (!batchmode)
+	if (!g_applet->batchmode)
 		vpn_applet_destroy(g_applet);
 
 	return 0;
