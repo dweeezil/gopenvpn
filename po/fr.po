@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: gopenvpn 0.7\n"
+"Project-Id-Version: gopenvpn 0.8\n"
 "Report-Msgid-Bugs-To: gopenvpn-users@lists.sourceforge.net\n"
 "POT-Creation-Date: 2012-03-31 20:33+0200\n"
 "PO-Revision-Date: 2006-12-14 14:51+0000\n"

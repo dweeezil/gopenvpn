@@ -18,7 +18,7 @@
 #
 
 AC_PREREQ([2.59])
-AC_INIT([gopenvpn], [0.7], [gopenvpn-users@lists.sourceforge.net])
+AC_INIT([gopenvpn], [0.8], [gopenvpn-users@lists.sourceforge.net])
 AC_CONFIG_AUX_DIR([.])
 AM_INIT_AUTOMAKE([foreign -Wall -Werror])
 AM_GNU_GETTEXT_VERSION([0.18.1])
