@@ -511,7 +511,7 @@ void vpn_config_start(VPNConfig *self)
 	
 	/* Clear the logs */
 	vpn_config_clear_log(self);
-        
+
 	/* Do nothing if already connected */
 	if (self->state != INACTIVE)
 		return;
