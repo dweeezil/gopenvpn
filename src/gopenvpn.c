@@ -418,10 +418,13 @@ void vpn_config_stop(VPNConfig *self)
 
 	g_source_remove_by_user_data(self);
 
-	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
-								   FALSE);
+	if (!batchmode)
+	{
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
+									   FALSE);
 
-	set_menuitem_label(self->menuitem, _("Connect %s"), self->name);
+		set_menuitem_label(self->menuitem, _("Connect %s"), self->name);
+	}
 
 	bzero(&self->sockaddr, sizeof self->sockaddr);
 	self->pid = 0;
@@ -511,11 +514,13 @@ void vpn_config_start(VPNConfig *self)
 	int status, port;
 
 	/* Check the popup menu item */
-	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
-								   TRUE);
+	if (!batchmode)
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
+									   TRUE);
 	
 	/* Clear the logs */
-	vpn_config_clear_log(self);
+	if (!batchmode)
+		vpn_config_clear_log(self);
 
 	/* Do nothing if already connected */
 	if (self->state != INACTIVE)
@@ -533,9 +538,12 @@ void vpn_config_start(VPNConfig *self)
 	if (bind(s, (const struct sockaddr *)&self->sockaddr, sizeof(self->sockaddr)) ||
 		getsockname(s, (struct sockaddr *)&self->sockaddr, &namelen))
 	{
-		vpn_applet_display_error(applet, _("Could not find an open TCP port for OpenVPN's management interface"));
-		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
-									   FALSE);
+		if (!batchmode)
+		{
+			vpn_applet_display_error(applet, _("Could not find an open TCP port for OpenVPN's management interface"));
+			gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(self->menuitem),
+										   FALSE);
+		}
 		return;
 	}
 
@@ -652,7 +660,8 @@ void vpn_config_init(VPNConfig *self,
 	self->file         = g_strdup(file);
 	self->state        = INACTIVE;
 	self->use_keyring  = !batchmode;
-	self->buffer       = gtk_text_buffer_new(NULL);
+	if (!batchmode)
+		self->buffer       = gtk_text_buffer_new(NULL);
 	self->name         = g_strdup(file);
 
 	slash = strrchr(file, '/');
@@ -662,13 +671,16 @@ void vpn_config_init(VPNConfig *self,
 	if (period)
 		*period = 0;
 	
-	self->menuitem = gtk_check_menu_item_new_with_label("");
+	if (!batchmode)
+	{
+		self->menuitem = gtk_check_menu_item_new_with_label("");
 
-	set_menuitem_label(self->menuitem, _("Connect %s"), self->name);
+		set_menuitem_label(self->menuitem, _("Connect %s"), self->name);
 
-	g_signal_connect(self->menuitem, "activate",
-					 G_CALLBACK(vpn_config_clicked),
-					 self);
+		g_signal_connect(self->menuitem, "activate",
+						 G_CALLBACK(vpn_config_clicked),
+						 self);
+	}
 }
 
 gboolean vpn_config_io_callback(GSource *source,
@@ -1554,12 +1566,12 @@ void vpn_applet_init_configs(VPNApplet *applet)
 
 	globfree(&gl);
 
-	if (!applet->configs_count)
+	if (!batchmode && !applet->configs_count)
 	{
 		vpn_applet_display_error(applet, _("No OpenVPN configuration files were found in %s"), CONFIG_PATH);
 	}
 
-	if (!g_file_test(OPENVPN_BINARY_PATH, G_FILE_TEST_IS_REGULAR))
+	if (!batchmode && !g_file_test(OPENVPN_BINARY_PATH, G_FILE_TEST_IS_REGULAR))
 	{
 		vpn_applet_display_error(applet, _("Could not find openvpn binary at %s.  Make sure OpenVPN is installed."), OPENVPN_BINARY_PATH);
 	}
@@ -1662,6 +1674,9 @@ void vpn_applet_destroy(VPNApplet *applet)
 		}
 		g_free(applet->configs);
 	}
+
+	if (batchmode)
+		return;
 
 	#ifdef USE_GTKSTATUSICON
 	if (applet->status_icon)
