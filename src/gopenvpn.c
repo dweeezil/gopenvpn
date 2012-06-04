@@ -993,6 +993,7 @@ VPNApplet *vpn_applet_new()
 	self->no_toggle         = FALSE;
 	self->preferences       = NULL;
 	self->configs_table     = NULL;
+	self->batchmode         = FALSE;
 	#ifdef USE_GTKSTATUSICON
 	self->status_icon       = NULL;
 	#else
