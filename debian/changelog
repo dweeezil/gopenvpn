@@ -1,0 +1,136 @@
+gopenvpn (0.8) lucid; urgency=low
+
+  [ Tim Chase ]
+  * Give the pidfile a more standard name. The pidfile is now named
+    "gopenvpn.<conffilebase>.pid".
+  * The gopenvpn program can't manage the pid file because it's running
+    openvpn with --daemon and isn't actually the parent of the openvpn
+    process.  Instead, we'll feed the --writepid option to openvpn at
+    the end of the command to override one that might be in the
+    configuration file. Doh!  I should have thought of this at first.
+  * Overhaul... again... eliminate the whole pidfile thing and switch to
+    a reconnect-to-managment socket scheme. The whole idea of keeping
+    pidfiles isn't going to work properly because the pidfiles don't
+    keep enough information around to be used by subsequent invokations
+    to reconnect to the existing openvpn management interfaces. Instead,
+    we'll drop files in /var/tmp/gopenvpn.<conn>.mgmt containing the TCP
+    port number of the corresponding openvpn's management interface.
+    Upon (re)start, try to connect to the management ports and consider
+    the connection up if we can. NOTE: This is an interim commit and
+    this code DOES NOT WORK yet.
+  * Write both the pid and the management port into
+    /var/tmp/gopenvpn.<conn>.state. The state file will now contain a
+    "pid=<pid>" line and a "mgmtport=<port>" line. The pid is the actual
+    pid of the underlying openvpn process (as harvested from openvpn's
+    own pidfile) and mgmtport is the TCP port number (on 127.0.0.1) used
+    for the OpenVPN management interface.
+  * Initial cut at restoring state.  It mostly works but does not fill
+    in the checkbox for an existing connection.
+  * Clean the /var/tmp/gopenvpn.<conn>.state file if it exists but its
+    openvpn process no longer is running.
+  * Remove state file after disconnecting.
+  * Use the VPNConfig.config array of configurations rather than the
+    VPNConfig.config_table hash table to iterate through the
+    configurations during reconnection.  When I first looked at the
+    program, I didn't realize there was an array as well as the hash
+    table.
+  * Quote and escape the arguments to the "Private Key" and "Auth"
+    commands. This will allow for spaces and quotes in the username and
+    password. Add the openvpn_mgmt_string_escape function to perform the
+    escaping.
+  * Remove debugging leftover from
+    c5c90187399e87a21c4c3a37b2f731710d6e2f13.
+  * s/auto_connect/autoConnect/ so that the auto connect checkbox's
+    callback is actually called.
+  * State overhaul.  Enable auto-reconnect. Rename the RESTART state to
+    RECONNECTING to better indicate its purpose.  The RECONNECTING state
+    indicates that gopenvpn is trying to re-establish a connection with
+    an existing openvpn's management interface. Renumber the states so
+    that they're in the "right" order (i.e. order in which they normally
+    occur). The CONNECTING, RECONNECTING and SENTSTATES now mean more-
+    or-less the same thing insofar as the program's icon is concerned
+    (namely, that it's in some stage of waiting for a connection).
+    Remove vpn_applet_autoconnect function and integrate auto-connect
+    with the the vpn_applet_reconnect_to_mgmt function.
+
+  [ j8erg ]
+  * Update TODO
+
+  [ Tim Chase ]
+  * Add a note regarding compilation under lucid.
+  * Rationalize the preferences & state handling. Per-connection state
+    is now stored in ~/.gopenvpn.state as a key/value file rather than
+    in separate /var/tmp/gopenvpn.<conn>.state files. The key is
+    "conn_<connection name>". Per-connection preferences are now also
+    stored in their own section (also named "conn_<connection name>" in
+    the ~/.gopenvpn file.
+  * Add comments regarding the onlight fork of gopenvpn.
+  * Add instructions for updating the gettext infrastructure.
+  * Work-in-progress to implement "batch mode". Batch mode is intended
+    to be used outside the context of a Gnome session to auto-connect
+    VPN session.
+  * Add comment regarding autoreconf -f.
+  * Handle batch mode in vpn_config_io_callback.
+  * Exec the right program in batch mode.
+  * Exit if all auto-connect connections are up in batch mode.
+  * Loop to consume all available input in vpn_config_io_callback.
+    Previously, vpn_config_io_callback would only read a single line per
+    call.  On some systems (Fedora 16) and, particularly in batch mode,
+    it seems there would be multiple lines of input available for
+    vpn_config_io_callback and if it only consumed a single line, it was
+    never called again for the unconsumed input.  This way, it's all
+    consumed in a single call.
+  * Socket reading fixes.  Batch mode improvements. Try non-blocking
+    mode for the socket in order to give the callback a chance to return
+    control to the main loop. Batch mode now uses the pop-up dialog(s)
+    for the private key and the auth user/password.
+  * Remove bogus all-whitespace line.
+  * In batch mode, exit if an empty password is entered.  Start to try
+    to deal with openvpn's EXITING state.
+  * Handle the batch mode case where there are no autoconnect
+    connections. If there are no auto-connect connections, batch mode
+    will exit early. Also, remove a botus gtk_main_quit() that was
+    apparently pasted into the middle of the IO callback.
+  * Skip a few GTK things when doing a batch mode re-connect to the
+    management interface.
+  * Suppress even more GTK-related things in batch mode.
+  * Add per-connection timeouts. A connection that's not established
+    within 60 seconds will be aborted. The vpn_connect_monitor function
+    is called every second for connections that are waiting to be
+    established and will abort the connection if it takes too long.
+    Harmonize all the config-walking loops. Move the global "batchmode"
+    flag into the per-applet data structure. Remove a few more batch
+    mode gtk-isms (I think).
+  * Initialize batchmode.
+  * Initialize procdir for each loop.
+  * Bump version to 0.8.
+
+  [ Nic Bernstein ]
+
+ -- Onlight Administration <onlight@occinc.com>  Mon, 04 Jun 2012 15:15:18 -0500
+
+gopenvpn (0.6-0sifnt) jaunty; urgency=low
+
+  * Updated to latest upstream (SVN Revision 6)
+  * Removed script-security patch (Patched upstream)
+
+ -- Sam Burney <sburney@sifnt.net.au>  Fri, 18 Sep 2009 16:34:00 +0930
+
+gopenvpn (0.1-2sifnt) jaunty; urgency=low
+
+  * Added OpenVPN >= 2.1_rc11 script-security patch
+
+ -- Sam Burney <sburney@sifnt.net.au>  Fri, 21 Aug 2009 12:22:48 +0930
+
+gopenvpn (0.1-1sifnt) jaunty; urgency=low
+
+  * Included LSB menu item
+
+ -- Sam Burney <sburney@sifnt.net.au>  Fri, 21 Aug 2009 10:35:14 +0930
+
+gopenvpn (0.1-0sifnt) jaunty; urgency=low
+
+  * Initial release
+
+ -- Sam Burney <sburney@sifnt.net.au>  Mon, 17 Aug 2009 16:05:57 +0930
+

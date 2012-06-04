@@ -1,0 +1,14 @@
+This package was debianized by Sam Burney <sburney@sifnt.net.au> on
+Mon, 17 Aug 2009 16:05:57 +0930.
+
+It was downloaded from <http://gopenvpn.sourceforge.net/>
+
+Upstream Author(s):
+
+    Gary Grossman <gary@softwareasart.com>
+
+The Debian packaging is copyright 2009, Sam Burney <sburney@sifnt.net.au> and
+is licensed under the GPL, see `/usr/share/common-licenses/GPL'.
+
+# Please also look if there are files or directories which have a
+# different copyright/license attached and list them here.
