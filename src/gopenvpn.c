@@ -1602,8 +1602,11 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 			conf->retry                    = MAX_RETRY - 1;
 			if (vpn_config_try_connect(conf) == 0)
 			{
-				set_menuitem_label(conf->menuitem, _("Disconnect %s"), conf->name);
-				vpn_applet_update_count_and_icon(conf->applet);
+				if (!batchmode)
+				{
+					set_menuitem_label(conf->menuitem, _("Disconnect %s"), conf->name);
+					vpn_applet_update_count_and_icon(conf->applet);
+				}
 				conf->state = RECONNECTING;
 			}
 		}
