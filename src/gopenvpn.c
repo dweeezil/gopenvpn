@@ -39,6 +39,7 @@
 #include <ctype.h>
 #include <strings.h>
 #include <pwd.h>
+#include <syslog.h>
 
 #include <glib.h>
 #include <glib/gi18n.h>
@@ -428,6 +429,7 @@ void vpn_config_stop(VPNConfig *self)
 	vpn_applet_update_state(applet);
 	self->state = INACTIVE;
 	vpn_applet_update_count_and_icon(applet);
+	syslog(LOG_NOTICE, "connection \"%s\" state = INACTIVE", self->name);
 }
 
 
@@ -435,12 +437,18 @@ int vpn_connect_monitor(gpointer user_data)
 {
 	VPNConfig *self = (VPNConfig*)user_data;
 	VPNApplet *applet = (VPNApplet*)self->applet;
+	time_t waittime;
 
 	if (self->state == CONNECTED)
 		return 0;
 
-	if (time(NULL) - self->connecting_start_time < 60)
+	waittime = time(NULL) - self->connecting_start_time;
+	if (waittime < 60)
+	{
+		syslog(LOG_DEBUG, "vpn_connect_monitor: connection \"%s\" waiting for %d seconds", self->name, (int)waittime);
 		return 1;
+	}
+	syslog(LOG_DEBUG, "vpn_connect_monitor: giving up on connection \"%s\"", self->name);
 	vpn_config_stop(self);
 	self->auto_connect = FALSE;
 	all_auto_up(applet, FALSE);
@@ -607,6 +615,7 @@ void vpn_config_start(VPNConfig *self)
 	self->state = CONNECTING;
 	self->connecting_start_time = time(NULL);
 	vpn_applet_update_count_and_icon(applet);
+	syslog(LOG_NOTICE, "connection \"%s\" state = CONNECTING", self->name);
 
 	/* The OpenVPN management port may take a little while to come up.
 	   Sleep a few seconds and give it a few tries. */
@@ -615,7 +624,7 @@ void vpn_config_start(VPNConfig *self)
 
 	/* In batch mode, monitor the connecting process */
 	if (applet->batchmode)
-		g_timeout_add(1000, vpn_connect_monitor, self);
+		g_timeout_add(10000, vpn_connect_monitor, self);
 }
 
 /* XXX - make sure all the "self" stuff is actually freed here */
@@ -827,6 +836,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			{
 				self->state = SENTSTATE;
 				vpn_applet_update_count_and_icon(applet);
+				syslog(LOG_NOTICE, "vpn_config_io_callback: connection \"%s\" state = SENTSTATE", self->name);
 				socket_printf(self->channel, "state\r\n", NULL);
 			}
 			else
@@ -854,6 +864,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			if (!strcmp(state, "RECONNECTING"))
 			{
 				/* Change our state back to connecting */
+				syslog(LOG_NOTICE, "vpn_config_io_callback: connection \"%s\" state = \"RECONNECTING\"->CONNECTING", self->name);
 				self->state = CONNECTING;
 				self->connecting_start_time = time(NULL);
 				
@@ -864,6 +875,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			}
 			else if (!strcmp(state, "CONNECTED"))
 			{
+				syslog(LOG_NOTICE, "vpn_config_io_callback: connection \"%s\" state = \"CONNECTED\"->CONNECTED", self->name);
 				self->state = CONNECTED;
 				if (applet->batchmode)
 					all_auto_up(applet, FALSE);
@@ -878,6 +890,7 @@ gboolean vpn_config_io_callback(GSource *source,
 				if (applet->batchmode)
 					gtk_main_quit();
 				self->state = INACTIVE;
+				syslog(LOG_NOTICE, "vpn_config_io_callback: connection \"%s\" state = \"EXITING\"->INACTIVE", self->name);
 				break;
 			}
 		}
@@ -913,6 +926,7 @@ gboolean vpn_config_io_callback(GSource *source,
 			fields = parse_openvpn_output(line, "", 5);
 			if (!strcmp(fields[1], "CONNECTED"))
 			{
+				syslog(LOG_NOTICE, "vpn_config_io_callback: connection \"%s\" state = CONNECTED", self->name);
 				self->state = CONNECTED;
 				if (applet->batchmode)
 					all_auto_up(applet, FALSE);
@@ -1637,6 +1651,7 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 					set_menuitem_label(conf->menuitem, _("Disconnect %s"), conf->name);
 					vpn_applet_update_count_and_icon(conf->applet);
 				}
+				syslog(LOG_NOTICE, "vpn_applet_reconnect_to_mgmt: connection \"%s\" state = RECONNECTING", conf->name);
 				conf->state = RECONNECTING;
 			}
 		}
@@ -1953,7 +1968,10 @@ void vpn_applet_init_signals(VPNApplet *applet)
 void vpn_applet_init(VPNApplet *applet)
 {
 	if (getenv("SUDO_COMMAND"))
+	{
+		syslog(LOG_INFO, "vpn_applet_init: batch mode enabled");
 		applet->batchmode = TRUE;
+	}
 
 	vpn_applet_init_signals(applet);
 	vpn_applet_init_resources(applet);
@@ -1973,6 +1991,8 @@ void vpn_applet_init(VPNApplet *applet)
 
 int main(int argc, char *argv[])
 {
+	openlog("gopenvpn", LOG_PID, LOG_DAEMON);
+	syslog(LOG_INFO, "starting");
 	setlocale(LC_ALL, "");
 	bindtextdomain(PACKAGE, LOCALEDIR);
 	bind_textdomain_codeset(PACKAGE, "UTF-8");
