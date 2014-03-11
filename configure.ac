@@ -20,7 +20,8 @@
 AC_PREREQ([2.59])
 AC_INIT([gopenvpn], [0.8], [gopenvpn-users@lists.sourceforge.net])
 AC_CONFIG_AUX_DIR([.])
-AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+dnl AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+AM_INIT_AUTOMAKE([foreign -Wno-portability -Wno-obsolete tar-ustar])
 AM_GNU_GETTEXT_VERSION([0.18.1])
 AM_GNU_GETTEXT([external])
 
