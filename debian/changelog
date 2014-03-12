@@ -1,3 +1,16 @@
+gopenvpn (0.8.1) lucid; urgency=low
+
+  [ Tim Chase ]
+  * Fix the RECONNECTING state.    
+    When re-connecting to the management interface, the previous state of
+    "log on" and "state on" are lost which caused gopenvpn to not handle
+    subsequent state transitions properly.
+    
+  * Fix some segfaults that would occur when parsing lines containing the
+    wrong number of fields.
+
+ -- Onlight Administration <onlight@occinc.com>  Wed, 12 Mar 2014 16:03:35 -0500
+     
 gopenvpn (0.8) lucid; urgency=low
 
   [ Tim Chase ]
