@@ -1019,6 +1019,8 @@ VPNApplet *vpn_applet_new()
 	self->batchmode         = FALSE;
 	#ifdef USE_APPINDICATOR
 	self->app_indicator	= NULL;
+	self->icon_blinking     = FALSE;
+	self->blink_on          = FALSE;	
 	#endif
 	#ifdef USE_GTKSTATUSICON
 	self->status_icon       = NULL;
@@ -1263,9 +1265,9 @@ void vpn_applet_set_icon_state(VPNApplet *applet, int state)
 	case CONNECTING:
 	case RECONNECTING:
 	case SENTSTATE:
+		app_indicator_set_icon(applet->app_indicator, CONNECTING_IMAGE_AI);
 		if (!applet->icon_blinking)
 		{
-			app_indicator_set_icon(applet->app_indicator, CONNECTING_IMAGE_AI);
 			applet->icon_blinking = TRUE;
 			applet->blink_on = FALSE;
 			g_timeout_add(500, app_indicator_blink_icon, applet);
