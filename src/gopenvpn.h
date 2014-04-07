@@ -25,6 +25,15 @@
 
 #define OPEN_IMAGE         "gopenvpn-open.png"
 
+/* For AppIndicator */
+#define CLOSED_IMAGE_AI    "gopenvpn-closed"
+
+#define CONNECTING_IMAGE_AI "gopenvpn-connecting"
+
+#define BLINK_IMAGE_AI     "gopenvpn-blink"
+
+#define OPEN_IMAGE_AI      "gopenvpn-open"
+
 #define GLADE_FILE         "gopenvpn.glade"
 
 #define CONFIG_PATH        "/etc/openvpn"

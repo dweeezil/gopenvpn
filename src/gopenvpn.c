@@ -82,6 +82,10 @@
 #include "eggtrayicon.h"
 #endif
 
+#ifdef USE_APPINDICATOR
+#include <libappindicator/app-indicator.h>
+#endif
+
 /*
  * VPNConfig Section
  */
@@ -149,6 +153,11 @@ struct VPNApplet
 	GHashTable    *configs_table;
 	gboolean       batchmode;
 
+#ifdef USE_APPINDICATOR
+	AppIndicator  *app_indicator;
+	gboolean       icon_blinking;
+	gboolean       blink_on;
+#endif
 #ifdef USE_GTKSTATUSICON
 	GtkStatusIcon *status_icon;
 #else
@@ -1008,6 +1017,9 @@ VPNApplet *vpn_applet_new()
 	self->preferences       = NULL;
 	self->configs_table     = NULL;
 	self->batchmode         = FALSE;
+	#ifdef USE_APPINDICATOR
+	self->app_indicator	= NULL;
+	#endif
 	#ifdef USE_GTKSTATUSICON
 	self->status_icon       = NULL;
 	#else
@@ -1142,6 +1154,22 @@ gboolean vpn_applet_blink_icon(gpointer user_data)
 }
 #endif
 
+#ifdef USE_APPINDICATOR
+gboolean app_indicator_blink_icon(gpointer user_data)
+{
+	VPNApplet *applet = (VPNApplet*)user_data;
+	
+	if (!applet->icon_blinking)
+		return FALSE;
+
+	app_indicator_set_icon(applet->app_indicator, applet->blink_on ? CONNECTING_IMAGE_AI : BLINK_IMAGE_AI);
+		
+	applet->blink_on = !applet->blink_on;
+	
+	return TRUE;
+}
+#endif
+
 gboolean vpn_applet_get_password(VPNApplet *applet,
 								 const char *name,
 								 char **username,
@@ -1225,6 +1253,30 @@ gboolean vpn_applet_get_password(VPNApplet *applet,
 
 void vpn_applet_set_icon_state(VPNApplet *applet, int state)
 {
+	#ifdef USE_APPINDICATOR
+	switch (state)
+	{
+	case INACTIVE:
+		applet->icon_blinking = FALSE;
+		app_indicator_set_icon(applet->app_indicator, CLOSED_IMAGE_AI);
+		break;
+	case CONNECTING:
+	case RECONNECTING:
+	case SENTSTATE:
+		if (!applet->icon_blinking)
+		{
+			app_indicator_set_icon(applet->app_indicator, CONNECTING_IMAGE_AI);
+			applet->icon_blinking = TRUE;
+			applet->blink_on = FALSE;
+			g_timeout_add(500, app_indicator_blink_icon, applet);
+		}
+		break;
+	case CONNECTED:
+		applet->icon_blinking = FALSE;
+		app_indicator_set_icon(applet->app_indicator, OPEN_IMAGE_AI);
+		break;
+	}
+	#endif
 	#ifdef USE_GTKSTATUSICON
 	switch (state)
 	{
@@ -1575,6 +1627,11 @@ void vpn_applet_init_popup_menu(VPNApplet *applet)
 						  details_item);
 	gtk_menu_shell_append(GTK_MENU_SHELL(applet->menu),
 						  quit_item);
+
+	#ifdef USE_APPINDICATOR
+	app_indicator_set_menu(applet->app_indicator, GTK_MENU(applet->menu));
+	gtk_widget_show_all(applet->menu);
+	#endif
 }
 
 void vpn_applet_init_configs(VPNApplet *applet)
@@ -1664,6 +1721,12 @@ void vpn_applet_reconnect_to_mgmt(VPNApplet *applet)
 
 void vpn_applet_init_status_icon(VPNApplet *applet)
 {
+	#ifdef USE_APPINDICATOR
+	applet->app_indicator = app_indicator_new_with_path("gopenvpn-icon", "gopenvpn", APP_INDICATOR_CATEGORY_OTHER, PIXMAPS_DIR);
+	app_indicator_set_status(applet->app_indicator, APP_INDICATOR_STATUS_ACTIVE);
+	app_indicator_set_icon(applet->app_indicator, CLOSED_IMAGE_AI);
+	app_indicator_set_title(applet->app_indicator, "GOpenVPN");
+	#endif
 	#ifdef USE_GTKSTATUSICON
 	applet->status_icon = gtk_status_icon_new_from_file(applet->closed_image);
 	
@@ -1711,6 +1774,11 @@ void vpn_applet_destroy(VPNApplet *applet)
 	if (applet->batchmode)
 		return;
 
+	#ifdef USE_APPINDICATOR
+	if (applet->app_indicator) {
+		app_indicator_set_status(applet->app_indicator, APP_INDICATOR_STATUS_PASSIVE);
+	}
+	#endif
 	#ifdef USE_GTKSTATUSICON
 	if (applet->status_icon)
 		g_object_unref(applet->status_icon);

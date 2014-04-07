@@ -65,6 +65,17 @@ AC_SUBST(X11_LIBS)
 
 PKG_CHECK_MODULES(POLKIT, polkit-gobject-1 >= 0.96)
 
+# Check for AppIndicator
+APPINDICATOR_LIBS=
+
+PKG_CHECK_MODULES(APPINDICATOR, appindicator-0.1,
+     [AC_DEFINE([USE_APPINDICATOR],[1],[Use AppIndicator1-0.1])],
+     [AC_MSG_WARN(AppIndicator 1-0.1 not present")])
+
+AM_CONDITIONAL(APPINDICATOR, test -n "$APPINDICATOR_LIBS")
+AC_SUBST(APPINDICATOR_CFLAGS)
+AC_SUBST(APPINDICATOR_LIBS)
+
 # Check for PolicyKit pkexec - can be overridden by --with-pkexec
 AC_ARG_WITH([pkexec],
         AC_HELP_STRING([--with-pkexec=/path/to/pkexec], [Full path to PolicyKit pkexec]))
