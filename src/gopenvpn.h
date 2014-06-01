@@ -26,13 +26,13 @@
 #define OPEN_IMAGE         "gopenvpn-open.png"
 
 /* For AppIndicator */
-#define CLOSED_IMAGE_AI    "gopenvpn-closed"
+#define CLOSED_IMAGE_AI    "gopenvpn-inactive"
 
-#define CONNECTING_IMAGE_AI "gopenvpn-connecting"
+#define CONNECTING_IMAGE_AI "gopenvpn-processing"
 
-#define BLINK_IMAGE_AI     "gopenvpn-blink"
+#define BLINK_IMAGE_AI     "gopenvpn-processing-2"
 
-#define OPEN_IMAGE_AI      "gopenvpn-open"
+#define OPEN_IMAGE_AI      "gopenvpn-active"
 
 #define GLADE_FILE         "gopenvpn.glade"
 
