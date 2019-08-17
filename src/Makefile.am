@@ -8,12 +8,14 @@ endif
 
 gopenvpn_LDADD = $(GTK_LIBS)	\
 	$(GLADE_LIBS)		\
+	$(LIBSECRET_LIBS)	\
 	$(GNOME_KEYRING_LIBS)	\
 	$(X11_LIBS)	\
 	$(APPINDICATOR_LIBS)
 
 AM_CFLAGS = -Wall -ansi -pedantic		\
 	$(GLADE_CFLAGS)				\
+	$(LIBSECRET_CFLAGS)			\
 	$(GNOME_KEYRING_CFLAGS)			\
 	$(GTK_CFLAGS)				\
 	$(X11_CFLAGS)				\

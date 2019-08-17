@@ -2,7 +2,9 @@ Source: gopenvpn
 Section: net
 Priority: extra
 Maintainer: Sam Burney <sburney@sifnt.net.au>
-Build-Depends: debhelper (>= 7), libglib2.0-dev, libgtk2.0-dev, libglade2-dev, libgnome-keyring-dev, build-essential, autogen, automake, autoconf, intltool, libpolkit-gobject-1-dev
+Build-Depends: debhelper (>= 7), libglib2.0-dev, libgtk2.0-dev, libglade2-dev,
+ libsecret-1-dev | libgnome-keyring-dev,
+ build-essential, autogen, automake, autoconf, intltool, libpolkit-gobject-1-dev
 Standards-Version: 3.8.0
 Homepage: http://gopenvpn.sourceforge.net/
 

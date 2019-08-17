@@ -39,3 +39,9 @@
 #define CONFIG_PATH        "/etc/openvpn"
 
 #define MAX_RETRY          10
+
+#ifdef HAVE_LIBSECRET
+const SecretSchema * gopenvpn_get_secret_schema (void) G_GNUC_CONST;
+
+#define GOPENVPN_SECRET_SCHEMA  gopenvpn_get_secret_schema ()
+#endif

@@ -47,7 +47,12 @@
 #include <gdk/gdkx.h>
 #include <gtk/gtk.h>
 #include <glade/glade.h>
+#ifdef HAVE_LIBSECRET
+#include <libsecret/secret.h>
+#endif
+#ifdef HAVE_GNOME_KEYRING
 #include <gnome-keyring.h>
+#endif
 
 #include "gettext.h"
 #include "gopenvpn.h"
@@ -204,6 +209,82 @@ VPNApplet *g_applet = NULL;
  * GNOME keyring support
  */
 
+#ifdef HAVE_LIBSECRET
+
+/* schema */
+const SecretSchema *
+gopenvpn_get_secret_schema (void)
+{
+    static const SecretSchema the_schema = {
+        "org.gnome.gopenvpn.Password", SECRET_SCHEMA_NONE,
+        {
+            { "config_name", SECRET_SCHEMA_ATTRIBUTE_STRING },
+			{ "NULL", 0 },
+        }
+    };
+    return &the_schema;
+}
+
+gboolean get_keyring(const char *config_name,
+					 char **username,
+					 char **passphrase)
+{
+	GError *error = NULL;
+	char **fields;
+
+	gchar *password = secret_password_lookup_sync (GOPENVPN_SECRET_SCHEMA,
+	                                               NULL, &error,
+	                                               "config_name", config_name,
+	                                               NULL);
+	if (error != NULL) {
+		return FALSE;
+	} else if (password == NULL) {
+		return FALSE;
+	} else {
+		fields = g_strsplit(password, ":", 2);
+		secret_password_free(password);
+
+		if (g_strv_length(fields) != 2)
+		{
+			g_strfreev(fields);
+			return FALSE;
+		}
+
+		if (username)
+			*username = g_strdup(fields[0]);
+		*passphrase = g_strdup(fields[1]);
+		g_strfreev(fields);
+		return TRUE;
+	}
+}
+
+void set_keyring(const char *config_name,
+				 const char *username,
+				 const char *passphrase)
+{
+	GError *error = NULL;
+
+
+	char *display_name;
+	char *secret;
+
+	display_name = g_strdup_printf(_("Passphrase for OpenVPN connection %s"), config_name);
+	secret = g_strdup_printf("%s:%s", username ? username : "", passphrase);
+
+	secret_password_store_sync (GOPENVPN_SECRET_SCHEMA, SECRET_COLLECTION_DEFAULT,
+                            	display_name, secret, NULL, &error,
+                            	"config_name", config_name,
+	                            NULL);
+	g_assert(error == NULL);
+	if (error != NULL) {
+		g_error_free (error);
+	}
+	g_free(display_name);
+	g_free(secret);
+}
+#endif
+
+#ifdef HAVE_GNOME_KEYRING
 gboolean get_keyring(const char *config_name,
 					 char **username,
 					 char **passphrase)
@@ -276,6 +357,7 @@ void set_keyring(const char *config_name,
 	gnome_keyring_attribute_list_free(attributes);
 	g_free(display_name);
 }
+#endif
 	
 /*
  * Utility functions
